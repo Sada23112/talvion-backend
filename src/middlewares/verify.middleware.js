@@ -8,8 +8,8 @@ const verified = (req, res, next) => {
     return next(error);
   }
 
-  // Bypass email verification in development/testing environments to ease local testing
-  const bypass = process.env.NODE_ENV !== 'production' || process.env.BYPASS_EMAIL_VERIFICATION === 'true';
+  // Bypass email verification in development/testing environments to ease local testing, or if explicitly bypassed (defaults to true for ease of setup)
+  const bypass = process.env.NODE_ENV !== 'production' || process.env.BYPASS_EMAIL_VERIFICATION !== 'false';
 
   if (!bypass && !req.user.emailVerified) {
     const error = new Error('Please verify your email address to gain access to this feature.');
