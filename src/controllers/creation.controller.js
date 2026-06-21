@@ -1,9 +1,11 @@
 const Creation = require('../models/creation.model');
 const Notification = require('../models/notification.model');
 const ReadingProgress = require('../models/readingProgress.model');
+const Upload = require('../models/upload.model');
 const connectDB = require('../config/db');
 const logger = require('../config/logger');
 const { mockCreationRepo, mockNotificationRepo } = require('../models/mock.db');
+const { updateCreatorStars } = require('../utils/reputation');
 
 const getAbsoluteUrl = (req, relativePath) => {
   if (!relativePath) return '';
@@ -206,6 +208,20 @@ const createCreation = async (req, res, next) => {
           mimetype: file.mimetype,
           size: file.size
         });
+
+        // Save to MongoDB if online
+        if (!connectDB.isDbOffline()) {
+          try {
+            const fileData = fs.readFileSync(file.path);
+            await Upload.create({
+              filename: file.filename,
+              contentType: file.mimetype,
+              data: fileData
+            });
+          } catch (dbErr) {
+            logger.error('Failed to save creation media upload to MongoDB:', dbErr);
+          }
+        }
       }
       // If content is empty and it's a media creation, set content to the first file's relative path
       if (!content && (matchedCategory === 'Art' || matchedCategory === 'Photo')) {
@@ -308,6 +324,10 @@ const likeCreation = async (req, res, next) => {
       }
 
       creation = await mockCreationRepo.findByIdAndUpdate(creationId, { likes });
+      
+      // Update mock creator reputation stars
+      const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
     } else {
       creation = await Creation.findById(creationId);
       if (!creation) {
@@ -335,6 +355,11 @@ const likeCreation = async (req, res, next) => {
       }
 
       await creation.save();
+      
+      // Update creator's reputation stars
+      const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
+
       await creation.populate('creator', 'fullName username category totalStars avatarUrl');
     }
 
@@ -382,6 +407,10 @@ const bookmarkCreation = async (req, res, next) => {
       }
 
       creation = await mockCreationRepo.findByIdAndUpdate(creationId, { bookmarks });
+
+      // Update mock creator reputation stars
+      const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
     } else {
       creation = await Creation.findById(creationId);
       if (!creation) {
@@ -399,6 +428,11 @@ const bookmarkCreation = async (req, res, next) => {
       }
 
       await creation.save();
+
+      // Update creator's reputation stars
+      const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
+
       await creation.populate('creator', 'fullName username category totalStars avatarUrl');
     }
 

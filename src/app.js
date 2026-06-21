@@ -9,6 +9,7 @@ const { errorHandler } = require('./middlewares/error.middleware');
 
 const mongoose = require('mongoose');
 const logger = require('./config/logger');
+const Upload = require('./models/upload.model');
 
 // Ensure uploads folder exists
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -35,6 +36,38 @@ app.use(cors({
 
 // 2. HTTP Request Logger
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// Fallback custom handler to serve uploaded media from database if local files are missing (Render container reset)
+app.get('/uploads/:filename', async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(uploadsDir, filename);
+
+    // 1. If the file exists on the local file system, serve it directly
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
+
+    // 2. Otherwise, look up the file in MongoDB if database is online
+    if (mongoose.connection.readyState === 1) {
+      const fileDoc = await Upload.findOne({ filename });
+      if (fileDoc) {
+        res.set('Content-Type', fileDoc.contentType);
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.send(fileDoc.data);
+      }
+    }
+
+    // 3. Fallback to 404
+    logger.warn(`Upload resource not found: /uploads/${filename}`);
+    res.status(404).json({
+      status: 'error',
+      message: `Resource not found: /uploads/${filename}`
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Static files route for uploaded media
 app.use('/uploads', express.static(uploadsDir));

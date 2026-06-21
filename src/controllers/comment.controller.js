@@ -4,6 +4,7 @@ const Notification = require('../models/notification.model');
 const connectDB = require('../config/db');
 const logger = require('../config/logger');
 const { mockCommentRepo, mockCreationRepo, mockNotificationRepo } = require('../models/mock.db');
+const { updateCreatorStars } = require('../utils/reputation');
 
 const getAbsoluteUrl = (req, relativePath) => {
   if (!relativePath) return '';
@@ -63,8 +64,11 @@ const createComment = async (req, res, next) => {
       const currentCount = creation.commentsCount || 0;
       await mockCreationRepo.findByIdAndUpdate(creationId, { commentsCount: currentCount + 1 });
 
-      // Trigger notification
+      // Update mock creator reputation stars
       const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
+
+      // Trigger notification
       if (creatorId !== userId.toString()) {
         await mockNotificationRepo.create({
           recipient: creatorId,
@@ -84,8 +88,11 @@ const createComment = async (req, res, next) => {
       // Increment commentsCount in Mongoose
       await Creation.findByIdAndUpdate(creationId, { $inc: { commentsCount: 1 } });
 
-      // Trigger notification
+      // Update creator's reputation stars
       const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      await updateCreatorStars(creatorId);
+
+      // Trigger notification
       if (creatorId !== userId.toString()) {
         await Notification.create({
           recipient: creatorId,
@@ -190,6 +197,10 @@ const deleteComment = async (req, res, next) => {
         const currentCount = mockCreation.commentsCount || 0;
         const newCount = Math.max(0, currentCount - 1);
         await mockCreationRepo.findByIdAndUpdate(creationId, { commentsCount: newCount });
+
+        // Update mock creator reputation stars
+        const creatorId = mockCreation.creator && mockCreation.creator._id ? mockCreation.creator._id.toString() : mockCreation.creator.toString();
+        await updateCreatorStars(creatorId);
       }
     } else {
       comment = await Comment.findById(commentId);
@@ -209,6 +220,13 @@ const deleteComment = async (req, res, next) => {
 
       // Decrement commentsCount in Mongoose
       await Creation.findByIdAndUpdate(comment.creation, { $inc: { commentsCount: -1 } });
+
+      // Update creator's reputation stars
+      const creation = await Creation.findById(comment.creation);
+      if (creation) {
+        const creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+        await updateCreatorStars(creatorId);
+      }
     }
 
     logger.info(`Comment ${commentId} deleted successfully by owner ${userId}`);
