@@ -46,7 +46,7 @@ const userSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['Artist', 'Writer', 'Photographer', 'Other'],
+      enum: ['Artist', 'Writer', 'Photographer', 'Personal', 'Other'],
       default: 'Artist'
     },
     avatarUrl: {
