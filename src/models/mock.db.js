@@ -181,18 +181,24 @@ const mockUserRepo = {
 const mockReports = [];
 
 const mockReportRepo = {
-  async create({ user, description }) {
+  async create({ user, description, targetType, targetId, reason }) {
     const newReport = {
       _id: `mock-report-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       user,
-      description,
+      description: description || '',
+      targetType: targetType || 'general',
+      targetId: targetId || null,
+      reason: reason || null,
       status: 'open',
       createdAt: new Date(),
       updatedAt: new Date()
     };
     
     mockReports.push(newReport);
-    console.log(`[Offline Support] New report registered: "${description}" by user ID ${user}`);
+    const label = targetType && targetId
+      ? `[${targetType.toUpperCase()}:${targetId}]`
+      : '[general]';
+    console.log(`[Offline Report] ${label} reason="${reason}" by user ${user}`);
     return newReport;
   }
 };

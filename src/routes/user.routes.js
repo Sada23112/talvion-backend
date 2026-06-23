@@ -11,7 +11,8 @@ const {
   fetchAvatar,
   fetchBanner,
   getBookmarkedCreations,
-  searchUsers
+  searchUsers,
+  reportUser
 } = require('../controllers/user.controller');
 const { protect } = require('../middlewares/auth.middleware');
 const { uploadAvatar: uploadAvatarMiddleware, uploadBanner: uploadBannerMiddleware } = require('../middlewares/upload.middleware');
@@ -32,5 +33,6 @@ router.get('/me/avatar', protect, fetchAvatar);
 router.get('/me/banner', protect, fetchBanner);
 router.get('/:id/avatar', protect, fetchAvatar);
 router.get('/:id/banner', protect, fetchBanner);
+router.post('/:id/report', protect, reportUser);
 
 module.exports = router;

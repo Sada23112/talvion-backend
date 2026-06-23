@@ -2,9 +2,10 @@ const Creation = require('../models/creation.model');
 const Notification = require('../models/notification.model');
 const ReadingProgress = require('../models/readingProgress.model');
 const Upload = require('../models/upload.model');
+const Report = require('../models/report.model');
 const connectDB = require('../config/db');
 const logger = require('../config/logger');
-const { mockCreationRepo, mockNotificationRepo } = require('../models/mock.db');
+const { mockCreationRepo, mockNotificationRepo, mockReportRepo } = require('../models/mock.db');
 const { updateCreatorStars } = require('../utils/reputation');
 
 const getAbsoluteUrl = (req, relativePath) => {
@@ -131,8 +132,12 @@ const getCreations = async (req, res, next) => {
         query.isJoint = isJoint === 'true' || isJoint === true;
       }
 
-      // Filter by status (default to published)
-      query.status = status || 'published';
+      // Filter by status (default to published, matching empty/undefined status as published)
+      if (status === 'draft') {
+        query.status = 'draft';
+      } else {
+        query.status = { $ne: 'draft' };
+      }
 
       // Parse pagination
       const parsedPage = parseInt(page, 10) || 1;
@@ -759,6 +764,69 @@ const updateCreation = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Report a specific creation
+ * @route   POST /api/v1/creations/:id/report
+ * @access  Private
+ */
+const reportCreation = async (req, res, next) => {
+  try {
+    const creationId = req.params.id;
+    const userId = req.user._id.toString();
+    const { reason, description } = req.body;
+
+    // Verify creation exists
+    let creation;
+    if (connectDB.isDbOffline()) {
+      creation = await mockCreationRepo.findById(creationId);
+    } else {
+      creation = await Creation.findById(creationId);
+    }
+
+    if (!creation) {
+      const error = new Error('Creation not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    // Save the report
+    let report;
+    if (connectDB.isDbOffline()) {
+      report = await mockReportRepo.create({
+        user: userId,
+        targetType: 'creation',
+        targetId: creationId,
+        reason: reason || 'Other',
+        description: description || ''
+      });
+    } else {
+      report = await Report.create({
+        user: userId,
+        targetType: 'creation',
+        targetId: creationId,
+        reason: reason || 'Other',
+        description: description || ''
+      });
+    }
+
+    logger.info('Creation reported', { creationId, userId, reason });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Thank you — your report has been submitted and will be reviewed.',
+      report: {
+        id: report._id,
+        targetType: 'creation',
+        targetId: creationId,
+        reason: report.reason,
+        status: report.status
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getCreations,
   getCreationById,
@@ -768,5 +836,6 @@ module.exports = {
   deleteCreation,
   getMyDrafts,
   updateCreation,
+  reportCreation,
   formatCreationResponse
 };

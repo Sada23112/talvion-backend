@@ -8,7 +8,8 @@ const {
   bookmarkCreation,
   deleteCreation,
   getMyDrafts,
-  updateCreation
+  updateCreation,
+  reportCreation
 } = require('../controllers/creation.controller');
 const { protect } = require('../middlewares/auth.middleware');
 const { verified } = require('../middlewares/verify.middleware');
@@ -24,6 +25,7 @@ router.post('/', protect, verified, uploadCreationMedia, createCreation);
 router.patch('/:id', protect, verified, uploadCreationMedia, updateCreation);
 router.post('/:id/like', protect, verified, likeCreation);
 router.post('/:id/bookmark', protect, verified, bookmarkCreation);
+router.post('/:id/report', protect, reportCreation);
 router.delete('/:id', protect, verified, deleteCreation);
 
 module.exports = router;

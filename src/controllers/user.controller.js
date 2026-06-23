@@ -3,11 +3,12 @@ const fs = require('fs');
 const User = require('../models/user.model');
 const Creation = require('../models/creation.model');
 const Upload = require('../models/upload.model');
+const Report = require('../models/report.model');
 const { CollabRequest, CollabChat } = require('../models/collab.model');
 const ReadingProgress = require('../models/readingProgress.model');
 const connectDB = require('../config/db');
 const logger = require('../config/logger');
-const { mockUserRepo, mockUsers } = require('../models/mock.db');
+const { mockUserRepo, mockUsers, mockReportRepo } = require('../models/mock.db');
 
 /**
  * @desc    Get currently logged in user profile
@@ -627,6 +628,76 @@ const searchUsers = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Report a specific user
+ * @route   POST /api/v1/users/:id/report
+ * @access  Private
+ */
+const reportUser = async (req, res, next) => {
+  try {
+    const targetUserId = req.params.id;
+    const reporterId = req.user._id.toString();
+    const { reason, description } = req.body;
+
+    // Prevent self-reporting
+    if (targetUserId === reporterId) {
+      const error = new Error('You cannot report yourself');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    // Verify target user exists
+    let targetUser;
+    if (connectDB.isDbOffline()) {
+      targetUser = await mockUserRepo.findById(targetUserId);
+    } else {
+      targetUser = await User.findById(targetUserId);
+    }
+
+    if (!targetUser) {
+      const error = new Error('User not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    // Save the report
+    let report;
+    if (connectDB.isDbOffline()) {
+      report = await mockReportRepo.create({
+        user: reporterId,
+        targetType: 'user',
+        targetId: targetUserId,
+        reason: reason || 'Other',
+        description: description || ''
+      });
+    } else {
+      report = await Report.create({
+        user: reporterId,
+        targetType: 'user',
+        targetId: targetUserId,
+        reason: reason || 'Other',
+        description: description || ''
+      });
+    }
+
+    logger.info('User reported', { targetUserId, reporterId, reason });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Thank you — your report has been submitted and will be reviewed.',
+      report: {
+        id: report._id,
+        targetType: 'user',
+        targetId: targetUserId,
+        reason: report.reason,
+        status: report.status
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProfile,
   getUserProfile,
@@ -638,5 +709,6 @@ module.exports = {
   fetchAvatar,
   fetchBanner,
   getBookmarkedCreations,
-  searchUsers
+  searchUsers,
+  reportUser
 };
