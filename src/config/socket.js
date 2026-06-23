@@ -70,7 +70,7 @@ const initSocket = (server) => {
 
     // Send Message
     socket.on('send_message', async (data, callback) => {
-      const { conversationId, content, type, imageBytes } = data;
+      const { conversationId, content, type, imageBytes, localId } = data;
       try {
         let conversation;
         let otherParticipantId;
@@ -170,8 +170,13 @@ const initSocket = (server) => {
           message = await Message.findById(message._id).populate('sender', 'fullName username avatarUrl profileImage');
         }
 
+        const messageData = typeof message.toObject === 'function' ? message.toObject() : { ...message };
+        if (localId) {
+          messageData.localId = localId;
+        }
+
         // 4. Emit message to conversation room
-        io.to(conversationId).emit('message_received', message);
+        io.to(conversationId).emit('message_received', messageData);
 
         // 5. If other participant is online but not in room, update their inbox
         if (otherParticipantId) {
@@ -203,7 +208,7 @@ const initSocket = (server) => {
 
         // Acknowledge sending success
         if (typeof callback === 'function') {
-          callback({ status: 'success', message });
+          callback({ status: 'success', message: messageData });
         }
       } catch (err) {
         logger.error('Error sending socket message:', err.message);
