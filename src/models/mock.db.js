@@ -369,14 +369,21 @@ const mockCreationRepo = {
       });
     }
 
-    // Filter by search keyword (in title, caption, hashtags)
+    // Filter by search keyword (in title, caption, hashtags, and creator details)
     if (query.search) {
       const s = query.search.toLowerCase();
-      list = list.filter(c => 
-        (c.title && c.title.toLowerCase().includes(s)) || 
-        (c.caption && c.caption.toLowerCase().includes(s)) || 
-        (c.hashtags && c.hashtags.some(t => t && t.toLowerCase().includes(s)))
-      );
+      list = list.filter(c => {
+        const creatorId = c.creator && c.creator._id ? c.creator._id : c.creator;
+        const user = mockUsers.find(u => u._id === creatorId);
+        const creatorName = user ? user.fullName : 'Meera Iyer';
+        const creatorUsername = user ? user.username : 'meera_iyer';
+
+        return (c.title && c.title.toLowerCase().includes(s)) || 
+          (c.caption && c.caption.toLowerCase().includes(s)) || 
+          (c.hashtags && c.hashtags.some(t => t && t.toLowerCase().includes(s))) ||
+          (creatorName && creatorName.toLowerCase().includes(s)) ||
+          (creatorUsername && creatorUsername.toLowerCase().includes(s));
+      });
     }
 
     // Filter by creator/userId

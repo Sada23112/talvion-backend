@@ -195,7 +195,7 @@ const updateProgress = async (req, res, next) => {
  */
 const getReadCreations = async (req, res, next) => {
   try {
-    const { category, page, limit } = req.query;
+    const { category, search, page, limit } = req.query;
 
     let creations;
     let pagination = {};
@@ -226,6 +226,23 @@ const getReadCreations = async (req, res, next) => {
         list = list.filter(c => ['Story', 'Poem', 'Essay', 'Quote'].includes(c.category));
       }
 
+      if (search) {
+        const s = search.toLowerCase();
+        const { mockUsers } = require('../models/mock.db');
+        list = list.filter(c => {
+          const creatorId = c.creator && c.creator._id ? c.creator._id : c.creator;
+          const user = mockUsers.find(u => u._id === creatorId);
+          const creatorName = user ? user.fullName : 'Meera Iyer';
+          const creatorUsername = user ? user.username : 'meera_iyer';
+
+          return (c.title && c.title.toLowerCase().includes(s)) ||
+            (c.caption && c.caption.toLowerCase().includes(s)) ||
+            (c.hashtags && c.hashtags.some(t => t && t.toLowerCase().includes(s))) ||
+            (creatorName && creatorName.toLowerCase().includes(s)) ||
+            (creatorUsername && creatorUsername.toLowerCase().includes(s));
+        });
+      }
+
       creations = list.map(c => mockCreationRepo._populateCreator(c));
     } else {
       const query = {};
@@ -245,6 +262,34 @@ const getReadCreations = async (req, res, next) => {
         }
       } else {
         query.category = { $in: ['Story', 'Poem', 'Essay', 'Quote'] };
+      }
+
+      if (search) {
+        const regex = new RegExp(search, 'i');
+        
+        let userIds = [];
+        try {
+          const User = require('../models/user.model');
+          const matchingUsers = await User.find({
+            $or: [
+              { fullName: regex },
+              { username: regex }
+            ]
+          }).select('_id');
+          userIds = matchingUsers.map(u => u._id);
+        } catch (err) {
+          // ignore
+        }
+
+        query.$or = [
+          { title: regex },
+          { caption: regex },
+          { hashtags: regex }
+        ];
+
+        if (userIds.length > 0) {
+          query.$or.push({ creator: { $in: userIds } });
+        }
       }
 
       const parsedPage = parseInt(page, 10) || 1;
