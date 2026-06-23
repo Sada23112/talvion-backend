@@ -9,6 +9,7 @@ const {
   getActiveSessions,
   forgotPassword,
   resetPassword,
+  getResetPasswordPage,
   verifyEmail,
   resendVerification
 } = require('../controllers/auth.controller');
@@ -79,6 +80,7 @@ router.post('/logout-all', protect, logoutAll);
 router.get('/sessions', protect, getActiveSessions);
 router.post('/forgot-password', recoveryLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password/:token', recoveryLimiter, validate(resetPasswordSchema), resetPassword);
+router.get('/reset-password/:token', getResetPasswordPage);
 router.get('/verify-email/:token', verifyEmail);
 router.post('/verify-email/:token', verifyEmail);
 router.post('/resend-verification', resendVerification);

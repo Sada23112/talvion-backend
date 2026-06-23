@@ -34,6 +34,14 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       maxlength: [30, 'Username cannot be more than 30 characters']
     },
+    artistName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    dateOfBirth: {
+      type: Date
+    },
     bio: {
       type: String,
       maxlength: [150, 'Bio cannot be more than 150 characters'],

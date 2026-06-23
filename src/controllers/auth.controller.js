@@ -100,11 +100,11 @@ const createUserSession = async (user, req) => {
  */
 const signUp = async (req, res, next) => {
   try {
-    const { fullName, email, password, username } = req.body;
+    const { fullName, email, password, username, artistName, dateOfBirth } = req.body;
 
     // 1. Basic field presence checks
-    if (!fullName || !email || !password || !username) {
-      const error = new Error('Please fill in all required fields (fullName, email, password, username)');
+    if (!fullName || !email || !password || !username || !artistName || !dateOfBirth) {
+      const error = new Error('Please fill in all required fields (fullName, email, password, username, artistName, dateOfBirth)');
       error.statusCode = 400;
       return next(error);
     }
@@ -144,12 +144,14 @@ const signUp = async (req, res, next) => {
 
     // 3. Create new user
     const user = connectDB.isDbOffline()
-      ? await mockUserRepo.create({ fullName, email, password, username: usernameLower })
+      ? await mockUserRepo.create({ fullName, email, password, username: usernameLower, artistName, dateOfBirth })
       : await User.create({
           fullName,
           email,
           password,
-          username: usernameLower
+          username: usernameLower,
+          artistName,
+          dateOfBirth
         });
 
     // Generate email verification token
@@ -672,6 +674,163 @@ const resendVerification = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Render Reset Password HTML Page
+ * @route   GET /api/v1/auth/reset-password/:token
+ * @access  Public
+ */
+const getResetPasswordPage = async (req, res, next) => {
+  try {
+    const hashedToken = hashToken(req.params.token);
+    const user = connectDB.isDbOffline()
+      ? await mockUserRepo.findOne({
+          passwordResetToken: hashedToken,
+          passwordResetExpires: { $gt: Date.now() }
+        })
+      : await User.findOne({
+          passwordResetToken: hashedToken,
+          passwordResetExpires: { $gt: Date.now() }
+        });
+
+    if (!user) {
+      return res.status(400).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Invalid Token - Talvion</title>
+          <style>
+            body { background: #1a1515; color: #f5ede4; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .card { background: #2c2222; padding: 40px; border-radius: 16px; text-align: center; max-width: 400px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+            h1 { color: #d38e8e; font-size: 24px; margin-bottom: 16px; }
+            p { font-size: 16px; color: #a67c6b; line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Link Expired or Invalid</h1>
+            <p>The password reset link is invalid or has expired. Please request a new link from the app.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+
+    res.status(200).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Reset Password - Talvion</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { background: #1a1515; color: #f5ede4; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+          .card { background: #2c2222; padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); box-sizing: border-box; }
+          h1 { color: #d38e8e; font-size: 26px; margin: 0 0 8px 0; text-align: center; }
+          p.subtitle { text-align: center; color: #a67c6b; font-size: 14px; margin: 0 0 28px 0; }
+          .form-group { margin-bottom: 20px; }
+          label { display: block; font-size: 13px; color: #a67c6b; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+          input { width: 100%; padding: 14px; background: #3d2f2f; border: 1px solid #4d3d3d; border-radius: 10px; color: #f5ede4; font-size: 16px; outline: none; box-sizing: border-box; transition: border-color 0.2s; }
+          input:focus { border-color: #d38e8e; }
+          .btn { width: 100%; padding: 16px; background: #d38e8e; border: none; border-radius: 12px; color: #1a1515; font-size: 16px; font-weight: 700; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+          .btn:hover { background: #e59f9f; }
+          .error-msg { color: #ff7878; font-size: 13px; margin-top: 8px; display: none; }
+          .success-container { display: none; text-align: center; }
+          .success-container h1 { color: #8ec899; }
+          .success-container p { color: #a67c6b; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div id="resetFormContainer">
+            <h1>Reset Password</h1>
+            <p class="subtitle">Enter your new password below</p>
+            <form id="resetForm">
+              <div class="form-group">
+                <label for="password">New Password</label>
+                <input type="password" id="password" required placeholder="Minimum 8 characters">
+                <div id="strengthError" class="error-msg">Password must be at least 8 characters and contain uppercase, lowercase, a number, and a special character.</div>
+              </div>
+              <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" required placeholder="Re-enter new password">
+                <div id="matchError" class="error-msg">Passwords do not match.</div>
+              </div>
+              <div id="generalError" class="error-msg"></div>
+              <button type="submit" class="btn">Reset Password</button>
+            </form>
+          </div>
+          
+          <div id="successContainer" class="success-container">
+            <h1>Success!</h1>
+            <p>Your password has been successfully reset. You can now log in with your new password in the Talvion app.</p>
+          </div>
+        </div>
+
+        <script>
+          const form = document.getElementById('resetForm');
+          const passwordInput = document.getElementById('password');
+          const confirmPasswordInput = document.getElementById('confirmPassword');
+          const strengthError = document.getElementById('strengthError');
+          const matchError = document.getElementById('matchError');
+          const generalError = document.getElementById('generalError');
+          const resetFormContainer = document.getElementById('resetFormContainer');
+          const successContainer = document.getElementById('successContainer');
+
+          const strengthRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$/;
+
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Reset errors
+            strengthError.style.display = 'none';
+            matchError.style.display = 'none';
+            generalError.style.display = 'none';
+
+            const password = passwordInput.value;
+            const confirmPassword = confirmPasswordInput.value;
+
+            // Validate
+            if (!strengthRegex.test(password)) {
+              strengthError.style.display = 'block';
+              return;
+            }
+
+            if (password !== confirmPassword) {
+              matchError.style.display = 'block';
+              return;
+            }
+
+            try {
+              const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ password })
+              });
+
+              const data = await response.json();
+
+              if (response.ok) {
+                resetFormContainer.style.display = 'none';
+                successContainer.style.display = 'block';
+              } else {
+                generalError.textContent = data.message || 'Something went wrong. Please try again.';
+                generalError.style.display = 'block';
+              }
+            } catch (err) {
+              generalError.textContent = 'Failed to connect to server. Please try again.';
+              generalError.style.display = 'block';
+            }
+          });
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   signUp,
   login,
@@ -683,6 +842,7 @@ module.exports = {
   createUserSession,
   forgotPassword,
   resetPassword,
+  getResetPasswordPage,
   verifyEmail,
   resendVerification
 };

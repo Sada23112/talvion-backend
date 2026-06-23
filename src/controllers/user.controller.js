@@ -532,6 +532,7 @@ const getBookmarkedCreations = async (req, res, next) => {
       total = await Creation.countDocuments(query);
       creations = await Creation.find(query)
         .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
+        .populate('mentions', 'fullName username category totalStars avatarUrl profileImage')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parsedLimit);
@@ -557,6 +558,75 @@ const getBookmarkedCreations = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Search users by username, fullName, or artistName
+ * @route   GET /api/v1/users/search
+ * @access  Private
+ */
+const searchUsers = async (req, res, next) => {
+  try {
+    const q = req.query.q || req.query.query || '';
+    
+    let users = [];
+    if (connectDB.isDbOffline()) {
+      const searchLower = q.toLowerCase().trim();
+      const matched = mockUsers.filter(u => {
+        if (!searchLower) return true;
+        return (
+          (u.username && u.username.toLowerCase().includes(searchLower)) ||
+          (u.fullName && u.fullName.toLowerCase().includes(searchLower)) ||
+          (u.artistName && u.artistName.toLowerCase().includes(searchLower))
+        );
+      });
+      users = matched.slice(0, 20).map(u => ({
+        id: u._id,
+        fullName: u.fullName,
+        username: u.username || '',
+        artistName: u.artistName || '',
+        category: u.category || 'Artist',
+        avatarUrl: u.avatarUrl || '',
+        profileImage: u.profileImage || '',
+        totalStars: u.totalStars || 0
+      }));
+    } else {
+      let queryObj = {};
+      if (q) {
+        const searchRegex = new RegExp(q.trim(), 'i');
+        queryObj = {
+          $or: [
+            { username: searchRegex },
+            { fullName: searchRegex },
+            { artistName: searchRegex }
+          ]
+        };
+      }
+      
+      const foundUsers = await User.find(queryObj)
+        .select('fullName username artistName category avatarUrl profileImage totalStars')
+        .limit(20);
+        
+      users = foundUsers.map(u => ({
+        id: u._id,
+        fullName: u.fullName,
+        username: u.username || '',
+        artistName: u.artistName || '',
+        category: u.category || 'Artist',
+        avatarUrl: u.avatarUrl || '',
+        profileImage: u.profileImage || '',
+        totalStars: u.totalStars || 0
+      }));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      results: users.length,
+      users
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProfile,
   getUserProfile,
@@ -567,5 +637,6 @@ module.exports = {
   uploadBanner,
   fetchAvatar,
   fetchBanner,
-  getBookmarkedCreations
+  getBookmarkedCreations,
+  searchUsers
 };

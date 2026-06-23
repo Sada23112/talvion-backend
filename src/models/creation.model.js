@@ -73,10 +73,12 @@ const creationSchema = new mongoose.Schema(
       type: [String],
       default: []
     },
-    mentions: {
-      type: [String],
-      default: []
-    },
+    mentions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ],
     media: [
       {
         url: { type: String, required: true },
@@ -84,7 +86,17 @@ const creationSchema = new mongoose.Schema(
         mimetype: { type: String },
         size: { type: Number }
       }
-    ]
+    ],
+    status: {
+      type: String,
+      enum: ['draft', 'published'],
+      default: 'published'
+    },
+    visibility: {
+      type: String,
+      enum: ['public', 'private'],
+      default: 'public'
+    }
   },
   {
     timestamps: true

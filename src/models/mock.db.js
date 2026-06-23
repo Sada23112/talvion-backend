@@ -70,7 +70,7 @@ const mockUserRepo = {
     return this._wrapUser(deletedUser);
   },
 
-  async create({ fullName, email, password, username }) {
+  async create({ fullName, email, password, username, artistName, dateOfBirth }) {
     // Hash password just like the mongoose schema hook
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -81,6 +81,8 @@ const mockUserRepo = {
       email: email.toLowerCase().trim(),
       password: hashedPassword,
       username: username ? username.trim().toLowerCase() : undefined,
+      artistName: artistName || '',
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
       bio: '',
       location: '',
       category: 'Artist',
@@ -111,6 +113,8 @@ const mockUserRepo = {
       email: user.email,
       password: user.password,
       username: user.username,
+      artistName: user.artistName || '',
+      dateOfBirth: user.dateOfBirth,
       bio: user.bio,
       location: user.location,
       category: user.category,
@@ -145,6 +149,8 @@ const mockUserRepo = {
           }
           rawUser.fullName = this.fullName;
           rawUser.username = this.username;
+          rawUser.artistName = this.artistName;
+          rawUser.dateOfBirth = this.dateOfBirth;
           rawUser.bio = this.bio;
           rawUser.location = this.location;
           rawUser.category = this.category;
@@ -400,6 +406,10 @@ const mockCreationRepo = {
       list = list.filter(c => c.isJoint === isJointBool);
     }
 
+    // Filter by status
+    const statusFilter = query.status || 'published';
+    list = list.filter(c => (c.status || 'published') === statusFilter);
+
     // Sort by createdAt desc
     list.sort((a, b) => b.createdAt - a.createdAt);
 
@@ -413,7 +423,7 @@ const mockCreationRepo = {
     return this._populateCreator(creation);
   },
 
-  async create({ creator, title, caption, category, content, gradientColors, hashtags, pages, readTime, isJoint, is18Plus, tags, mentions, media }) {
+  async create({ creator, title, caption, category, content, gradientColors, hashtags, pages, readTime, isJoint, is18Plus, tags, mentions, media, status, visibility }) {
     const newCreation = {
       _id: `mock-creation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       creator,
@@ -432,6 +442,8 @@ const mockCreationRepo = {
       tags: tags || [],
       mentions: mentions || [],
       media: media || [],
+      status: status || 'published',
+      visibility: visibility || 'public',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -480,9 +492,22 @@ const mockCreationRepo = {
       avatarUrl: ''
     };
 
+    const populatedMentions = (creation.mentions || []).map(mId => {
+      const u = mockUsers.find(userObj => userObj._id === mId.toString());
+      return u ? {
+        _id: u._id,
+        fullName: u.fullName,
+        username: u.username || 'user',
+        category: u.category || 'Artist',
+        totalStars: u.totalStars || 0,
+        avatarUrl: u.avatarUrl || ''
+      } : { _id: mId, username: mId, fullName: mId };
+    });
+
     return {
       ...creation,
-      creator: creatorObj
+      creator: creatorObj,
+      mentions: populatedMentions
     };
   }
 };

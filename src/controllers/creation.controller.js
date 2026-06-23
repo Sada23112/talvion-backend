@@ -57,13 +57,13 @@ const formatCreationResponse = (req, creationDoc) => {
  */
 const getCreations = async (req, res, next) => {
   try {
-    const { category, search, page, limit, creator, isJoint } = req.query;
+    const { category, search, page, limit, creator, isJoint, status } = req.query;
 
     let creations;
     let pagination = {};
 
     if (connectDB.isDbOffline()) {
-      const allCreations = await mockCreationRepo.find({ category, search, creator, isJoint });
+      const allCreations = await mockCreationRepo.find({ category, search, creator, isJoint, status });
       const parsedPage = parseInt(page, 10) || 1;
       const parsedLimit = parseInt(limit, 10) || 20;
       const skip = (parsedPage - 1) * parsedLimit;
@@ -131,6 +131,9 @@ const getCreations = async (req, res, next) => {
         query.isJoint = isJoint === 'true' || isJoint === true;
       }
 
+      // Filter by status (default to published)
+      query.status = status || 'published';
+
       // Parse pagination
       const parsedPage = parseInt(page, 10) || 1;
       const parsedLimit = parseInt(limit, 10) || 20; // Default limit 20
@@ -140,6 +143,7 @@ const getCreations = async (req, res, next) => {
 
       creations = await Creation.find(query)
         .populate('creator', 'fullName username category totalStars avatarUrl')
+        .populate('mentions', 'fullName username category totalStars avatarUrl')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parsedLimit);
@@ -176,10 +180,9 @@ const getCreationById = async (req, res, next) => {
     if (connectDB.isDbOffline()) {
       creation = await mockCreationRepo.findById(creationId);
     } else {
-      creation = await Creation.findById(creationId).populate(
-        'creator',
-        'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage'
-      );
+      creation = await Creation.findById(creationId)
+        .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
+        .populate('mentions', 'fullName username category totalStars avatarUrl profileImage');
     }
 
     if (!creation) {
@@ -237,6 +240,8 @@ const createCreation = async (req, res, next) => {
     const isJoint = req.body.isJoint === 'true' || req.body.isJoint === true;
     const is18Plus = req.body.is18Plus === 'true' || req.body.is18Plus === true;
     const readTime = req.body.readTime ? req.body.readTime.trim() : '';
+    const status = req.body.status ? req.body.status.trim() : 'published';
+    const visibility = req.body.visibility ? req.body.visibility.trim() : 'public';
 
     // Validate category
     const validCategories = ['Art', 'Photo', 'Story', 'Poem', 'Essay', 'Quote'];
@@ -271,6 +276,7 @@ const createCreation = async (req, res, next) => {
         // Save to MongoDB if online
         if (!connectDB.isDbOffline()) {
           try {
+            const fs = require('fs');
             const fileData = fs.readFileSync(file.path);
             await Upload.create({
               filename: file.filename,
@@ -312,7 +318,9 @@ const createCreation = async (req, res, next) => {
         isJoint,
         is18Plus,
         media,
-        readTime
+        readTime,
+        status,
+        visibility
       });
     } else {
       creation = await Creation.create({
@@ -329,15 +337,20 @@ const createCreation = async (req, res, next) => {
         isJoint,
         is18Plus,
         media,
-        readTime
+        readTime,
+        status,
+        visibility
       });
-      // Populate creator details for the response
-      await creation.populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage');
+      // Populate creator and mentions details for the response
+      await creation.populate([
+        { path: 'creator', select: 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage' },
+        { path: 'mentions', select: 'fullName username category totalStars avatarUrl profileImage' }
+      ]);
     }
 
     res.status(201).json({
       status: 'success',
-      message: 'Creation published successfully',
+      message: status === 'draft' ? 'Draft saved successfully' : 'Creation published successfully',
       creation: formatCreationResponse(req, creation)
     });
   } catch (error) {
@@ -568,11 +581,192 @@ const deleteCreation = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Get current user's saved drafts
+ * @route   GET /api/v1/creations/me/drafts
+ * @access  Private
+ */
+const getMyDrafts = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    let drafts;
+
+    if (connectDB.isDbOffline()) {
+      drafts = await mockCreationRepo.find({ creator: userId, status: 'draft' });
+    } else {
+      drafts = await Creation.find({ creator: userId, status: 'draft' })
+        .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
+        .populate('mentions', 'fullName username category totalStars avatarUrl profileImage')
+        .sort({ updatedAt: -1 });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      results: drafts.length,
+      creations: drafts.map(d => formatCreationResponse(req, d))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Edit/update an existing creation
+ * @route   PATCH /api/v1/creations/:id
+ * @access  Private
+ */
+const updateCreation = async (req, res, next) => {
+  try {
+    const creationId = req.params.id;
+    const userId = req.user._id.toString();
+
+    let creation;
+
+    if (connectDB.isDbOffline()) {
+      creation = await mockCreationRepo.findById(creationId);
+      if (!creation) {
+        const error = new Error('Creation not found');
+        error.statusCode = 404;
+        return next(error);
+      }
+
+      const creatorIdStr = (typeof creation.creator === 'object') ? creation.creator._id : creation.creator;
+      if (creatorIdStr !== userId) {
+        const error = new Error('You do not have permission to edit this creation');
+        error.statusCode = 403;
+        return next(error);
+      }
+    } else {
+      creation = await Creation.findById(creationId);
+      if (!creation) {
+        const error = new Error('Creation not found');
+        error.statusCode = 404;
+        return next(error);
+      }
+
+      if (creation.creator.toString() !== userId) {
+        const error = new Error('You do not have permission to edit this creation');
+        error.statusCode = 403;
+        return next(error);
+      }
+    }
+
+    // Process fields to update
+    const updateData = {};
+    const permittedFields = [
+      'title',
+      'caption',
+      'category',
+      'content',
+      'pages',
+      'gradientColors',
+      'hashtags',
+      'isJoint',
+      'is18Plus',
+      'readTime',
+      'tags',
+      'mentions',
+      'status',
+      'visibility'
+    ];
+
+    // Helper to parse arrays from JSON string or comma-separated values
+    const parseArray = (field) => {
+      if (!field) return [];
+      if (Array.isArray(field)) return field;
+      try {
+        const parsed = JSON.parse(field);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {}
+      if (typeof field === 'string') {
+        return field.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    permittedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        if (['pages', 'gradientColors', 'hashtags', 'tags', 'mentions'].includes(field)) {
+          updateData[field] = parseArray(req.body[field]);
+        } else if (['isJoint', 'is18Plus'].includes(field)) {
+          updateData[field] = req.body[field] === 'true' || req.body[field] === true;
+        } else if (typeof req.body[field] === 'string') {
+          updateData[field] = req.body[field].trim();
+        } else {
+          updateData[field] = req.body[field];
+        }
+      }
+    });
+
+    // Clean hashtags if updated
+    if (updateData.hashtags) {
+      updateData.hashtags = updateData.hashtags.map(tag => tag.startsWith('#') ? tag.slice(1) : tag);
+    }
+
+    // Process media files if uploaded
+    if (req.files && req.files.length > 0) {
+      const media = [];
+      for (const file of req.files) {
+        media.push({
+          url: `/uploads/${file.filename}`,
+          filename: file.filename,
+          mimetype: file.mimetype,
+          size: file.size
+        });
+
+        if (!connectDB.isDbOffline()) {
+          try {
+            const fs = require('fs');
+            const fileData = fs.readFileSync(file.path);
+            await Upload.create({
+              filename: file.filename,
+              contentType: file.mimetype,
+              data: fileData
+            });
+          } catch (dbErr) {
+            logger.error('Failed to save creation media upload to MongoDB in update:', dbErr);
+          }
+        }
+      }
+      updateData.media = media;
+      // If content is empty and it's a media creation, set content to the first file's relative path
+      const category = updateData.category || creation.category;
+      if (!updateData.content && (category === 'Art' || category === 'Photo')) {
+        updateData.content = media[0].url;
+      }
+    }
+
+    let updatedCreation;
+    if (connectDB.isDbOffline()) {
+      updatedCreation = await mockCreationRepo.findByIdAndUpdate(creationId, updateData);
+    } else {
+      updatedCreation = await Creation.findByIdAndUpdate(
+        creationId,
+        { $set: updateData },
+        { new: true, runValidators: true }
+      )
+        .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
+        .populate('mentions', 'fullName username category totalStars avatarUrl profileImage');
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Creation updated successfully',
+      creation: formatCreationResponse(req, updatedCreation)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getCreations,
   getCreationById,
   createCreation,
   likeCreation,
   bookmarkCreation,
-  deleteCreation
+  deleteCreation,
+  getMyDrafts,
+  updateCreation,
+  formatCreationResponse
 };
