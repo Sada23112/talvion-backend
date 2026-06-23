@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getCreations,
+  getCreationById,
   createCreation,
   likeCreation,
   bookmarkCreation,
@@ -13,6 +14,7 @@ const { uploadCreationMedia } = require('../middlewares/upload.middleware');
 
 // Public route to browse creations
 router.get('/', getCreations);
+router.get('/:id', getCreationById);
 
 // Private routes requiring JWT verification and email verification
 router.post('/', protect, verified, uploadCreationMedia, createCreation);

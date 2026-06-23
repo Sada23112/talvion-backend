@@ -97,11 +97,30 @@ const getCreations = async (req, res, next) => {
 
       if (search) {
         const regex = new RegExp(search, 'i');
+        
+        let userIds = [];
+        try {
+          const User = require('../models/user.model');
+          const matchingUsers = await User.find({
+            $or: [
+              { fullName: regex },
+              { username: regex }
+            ]
+          }).select('_id');
+          userIds = matchingUsers.map(u => u._id);
+        } catch (err) {
+          logger.error('Failed to query users during creation search:', err);
+        }
+
         query.$or = [
           { title: regex },
           { caption: regex },
           { hashtags: regex }
         ];
+
+        if (userIds.length > 0) {
+          query.$or.push({ creator: { $in: userIds } });
+        }
       }
 
       if (creator) {
@@ -140,6 +159,45 @@ const getCreations = async (req, res, next) => {
       creations: creations.map(c => formatCreationResponse(req, c))
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Fetch a single creation by ID
+ * @route   GET /api/v1/creations/:id
+ * @access  Public
+ */
+const getCreationById = async (req, res, next) => {
+  try {
+    const creationId = req.params.id;
+    let creation;
+
+    if (connectDB.isDbOffline()) {
+      creation = await mockCreationRepo.findById(creationId);
+    } else {
+      creation = await Creation.findById(creationId).populate(
+        'creator',
+        'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage'
+      );
+    }
+
+    if (!creation) {
+      const error = new Error('Creation not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    res.status(200).json({
+      status: 'success',
+      creation: formatCreationResponse(req, creation)
+    });
+  } catch (error) {
+    if (error.name === 'CastError') {
+      const castError = new Error('Creation not found');
+      castError.statusCode = 404;
+      return next(castError);
+    }
     next(error);
   }
 };
@@ -512,6 +570,7 @@ const deleteCreation = async (req, res, next) => {
 
 module.exports = {
   getCreations,
+  getCreationById,
   createCreation,
   likeCreation,
   bookmarkCreation,
