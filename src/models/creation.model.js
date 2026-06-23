@@ -57,6 +57,10 @@ const creationSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    is18Plus: {
+      type: Boolean,
+      default: false
+    },
     readTime: {
       type: String,
       default: '3 min read'

@@ -177,6 +177,7 @@ const createCreation = async (req, res, next) => {
     const tags = parseArray(req.body.tags);
     const mentions = parseArray(req.body.mentions);
     const isJoint = req.body.isJoint === 'true' || req.body.isJoint === true;
+    const is18Plus = req.body.is18Plus === 'true' || req.body.is18Plus === true;
     const readTime = req.body.readTime ? req.body.readTime.trim() : '';
 
     // Validate category
@@ -251,6 +252,7 @@ const createCreation = async (req, res, next) => {
         tags,
         mentions,
         isJoint,
+        is18Plus,
         media,
         readTime
       });
@@ -267,6 +269,7 @@ const createCreation = async (req, res, next) => {
         tags,
         mentions,
         isJoint,
+        is18Plus,
         media,
         readTime
       });

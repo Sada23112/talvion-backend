@@ -406,7 +406,7 @@ const mockCreationRepo = {
     return this._populateCreator(creation);
   },
 
-  async create({ creator, title, caption, category, content, gradientColors, hashtags, pages, readTime, isJoint, tags, mentions, media }) {
+  async create({ creator, title, caption, category, content, gradientColors, hashtags, pages, readTime, isJoint, is18Plus, tags, mentions, media }) {
     const newCreation = {
       _id: `mock-creation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       creator,
@@ -421,6 +421,7 @@ const mockCreationRepo = {
       pages: pages || [],
       readTime: readTime || '1 min read',
       isJoint: isJoint === true || isJoint === 'true',
+      is18Plus: is18Plus === true || is18Plus === 'true',
       tags: tags || [],
       mentions: mentions || [],
       media: media || [],
