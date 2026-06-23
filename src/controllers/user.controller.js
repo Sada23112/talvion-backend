@@ -499,6 +499,64 @@ const getUserProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Fetch creations bookmarked by currently logged-in user
+ * @route   GET /api/v1/users/me/bookmarks
+ * @access  Private
+ */
+const getBookmarkedCreations = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { page, limit } = req.query;
+
+    const parsedPage = parseInt(page, 10) || 1;
+    const parsedLimit = parseInt(limit, 10) || 20;
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    let creations;
+    let total;
+
+    const { mockCreationRepo, mockCreations } = require('../models/mock.db');
+
+    if (connectDB.isDbOffline()) {
+      const allBookmarked = mockCreations.filter(c => {
+        const bookmarksList = c.bookmarks || [];
+        return bookmarksList.some(b => b.toString() === userId.toString());
+      });
+
+      total = allBookmarked.length;
+      const paginated = allBookmarked.slice(skip, skip + parsedLimit);
+      creations = paginated.map(c => mockCreationRepo._populateCreator(c));
+    } else {
+      const query = { bookmarks: userId };
+      total = await Creation.countDocuments(query);
+      creations = await Creation.find(query)
+        .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parsedLimit);
+    }
+
+    const pagination = {
+      page: parsedPage,
+      limit: parsedLimit,
+      total,
+      pages: Math.ceil(total / parsedLimit)
+    };
+
+    const { formatCreationResponse } = require('./creation.controller');
+
+    res.status(200).json({
+      status: 'success',
+      results: creations.length,
+      pagination,
+      creations: creations.map(c => formatCreationResponse(req, c))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProfile,
   getUserProfile,
@@ -508,5 +566,6 @@ module.exports = {
   uploadAvatar,
   uploadBanner,
   fetchAvatar,
-  fetchBanner
+  fetchBanner,
+  getBookmarkedCreations
 };
