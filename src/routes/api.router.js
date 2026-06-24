@@ -7,11 +7,16 @@ const creationRoutes = require('./creation.routes');
 const collabRoutes = require('./collab.routes');
 const readRoutes = require('./read.routes');
 const commentRoutes = require('./comment.routes');
+const annotationRoutes = require('./annotation.routes');
 const notificationRoutes = require('./notification.routes');
 const conversationRoutes = require('./conversation.routes');
+const economyRoutes = require('./economy.routes');
 
 // 1. Mount Functional Authentication Routes
 router.use('/auth', authRoutes);
+
+// Mount Economy Routes
+router.use('/economy', economyRoutes);
 
 // Mount Notification Routes
 router.use('/notifications', notificationRoutes);
@@ -36,6 +41,9 @@ router.use('/read', readRoutes);
 
 // 7. Mount Comments Routes
 router.use('/', commentRoutes);
+
+// 8. Mount Annotation Routes
+router.use('/', annotationRoutes);
 
 // 2. Mock / Starter Social Feed Router
 router.get('/posts', (req, res) => {

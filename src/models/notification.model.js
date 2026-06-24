@@ -16,8 +16,8 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Notification must have a type.'],
       enum: {
-        values: ['like', 'comment', 'message', 'collab_request', 'collab_accept'],
-        message: 'Notification type must be one of: like, comment, message, collab_request, collab_accept.'
+        values: ['like', 'comment', 'message', 'collab_request', 'collab_accept', 'follow', 'tip', 'mention'],
+        message: 'Notification type must be one of: like, comment, message, collab_request, collab_accept, follow, tip, mention.'
       }
     },
     creation: {

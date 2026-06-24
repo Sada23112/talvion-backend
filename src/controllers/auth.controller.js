@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/user.model');
 const UserSession = require('../models/userSession.model');
 const connectDB = require('../config/db');
@@ -403,6 +404,44 @@ const logoutAll = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       message: 'Logged out successfully from all devices'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Revoke a specific session for authenticated user
+ * @route   DELETE /api/v1/auth/sessions/:sessionId
+ * @access  Private
+ */
+const revokeSession = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { sessionId } = req.params;
+    const sessionRepo = getSessionRepo();
+
+    const session = await sessionRepo.findOne({ _id: sessionId, user: userId });
+    
+    if (!session) {
+      const error = new Error('Session not found');
+      error.statusCode = 404;
+      return next(error);
+    }
+
+    if (session.isRevoked) {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Session is already revoked'
+      });
+    }
+
+    session.isRevoked = true;
+    await session.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Session revoked successfully'
     });
   } catch (error) {
     next(error);
@@ -831,12 +870,182 @@ const getResetPasswordPage = async (req, res, next) => {
   }
 };
 
+const verifyGoogleToken = async (idToken) => {
+  // If offline or mock token, return mock payload
+  if (idToken.startsWith('mock_google_id_token_') || connectDB.isDbOffline()) {
+    const mockEmail = idToken.replace('mock_google_id_token_', '');
+    let email = `${mockEmail}@example.com`;
+    let name = mockEmail.charAt(0).toUpperCase() + mockEmail.slice(1) + ' Google';
+    let sub = `google-mock-id-${mockEmail}`;
+    let picture = '';
+    
+    // Customize details based on known mock accounts
+    if (mockEmail === 'meera') {
+      email = 'meera@example.com';
+      name = 'Meera Iyer';
+      sub = 'mock-user-admin';
+    } else if (mockEmail === 'riya') {
+      email = 'riya@example.com';
+      name = 'Riya Sen';
+      sub = 'mock-user-1';
+    } else if (mockEmail === 'new') {
+      email = 'new_google_user@gmail.com';
+      name = 'Test Google User';
+      sub = 'google-mock-id-new';
+    }
+
+    return {
+      sub,
+      email,
+      name,
+      picture,
+      isMock: true
+    };
+  }
+
+  // Real Google token verification
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const oAuthClient = new OAuth2Client(clientId);
+  
+  const ticket = await oAuthClient.verifyIdToken({
+    idToken,
+    ...(clientId && { audience: clientId })
+  });
+  
+  return ticket.getPayload();
+};
+
+const googleSignIn = async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      const error = new Error('Google ID token is required');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const payload = await verifyGoogleToken(idToken);
+    const { sub: googleId, email, name: fullName, picture: avatarUrl } = payload;
+
+    if (!email) {
+      const error = new Error('Email is not associated with this Google account');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    // Check if user exists by googleId or email
+    let user;
+    const isOffline = connectDB.isDbOffline();
+    const { mockUsers } = require('../models/mock.db');
+
+    if (isOffline) {
+      const rawUser = mockUsers.find(u => u.googleId === googleId || u.email === email.toLowerCase().trim());
+      user = rawUser ? mockUserRepo._wrapUser(rawUser) : null;
+    } else {
+      user = await User.findOne({
+        $or: [{ googleId }, { email: email.toLowerCase().trim() }]
+      });
+    }
+
+    if (user) {
+      // User exists. Ensure googleId is saved if logging in with Google for first time
+      let updated = false;
+      if (!user.googleId) {
+        user.googleId = googleId;
+        updated = true;
+      }
+      if (user.authProvider !== 'google') {
+        user.authProvider = 'google';
+        updated = true;
+      }
+      if (avatarUrl && !user.avatarUrl) {
+        user.avatarUrl = avatarUrl;
+        updated = true;
+      }
+      if (updated) {
+        await user.save();
+      }
+    } else {
+      // User does not exist. Register them.
+      // Generate a unique username based on full name or email prefix
+      const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+      let baseUsername = emailPrefix.slice(0, 15).toLowerCase();
+      if (baseUsername.length < 3) baseUsername = 'user_' + baseUsername;
+      
+      let username = baseUsername;
+      let counter = 1;
+      let usernameExists = true;
+
+      while (usernameExists) {
+        if (isOffline) {
+          usernameExists = mockUsers.some(u => u.username === username);
+        } else {
+          usernameExists = await User.exists({ username });
+        }
+        if (usernameExists) {
+          username = `${baseUsername}_${counter}`;
+          counter++;
+        }
+      }
+
+      // Create new user
+      const userData = {
+        fullName,
+        email: email.toLowerCase().trim(),
+        username,
+        googleId,
+        authProvider: 'google',
+        avatarUrl: avatarUrl || '',
+        profileImage: avatarUrl || '',
+        category: 'Personal',
+        emailVerified: true,
+        emailVerifiedAt: new Date()
+      };
+
+      if (isOffline) {
+        user = await mockUserRepo.create(userData);
+      } else {
+        user = await User.create(userData);
+      }
+    }
+
+    // Create session and tokens
+    const { accessToken, refreshToken } = await createUserSession(user, req);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Google authentication successful',
+      accessToken,
+      token: accessToken, // backward compatibility
+      refreshToken,
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        username: user.username,
+        bio: user.bio,
+        location: user.location,
+        category: user.category,
+        avatarUrl: user.avatarUrl,
+        bannerUrl: user.bannerUrl,
+        totalStars: user.totalStars,
+        walletBalance: user.walletBalance,
+        authProvider: user.authProvider
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   signUp,
+  googleSignIn,
   login,
   refresh,
   logout,
   logoutAll,
+  revokeSession,
   getActiveSessions,
   hashToken,
   createUserSession,

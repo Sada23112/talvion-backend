@@ -7,6 +7,7 @@ const connectDB = require('../config/db');
 const logger = require('../config/logger');
 const { mockCreationRepo, mockNotificationRepo, mockReportRepo } = require('../models/mock.db');
 const { updateCreatorStars } = require('../utils/reputation');
+const EconomyService = require('../services/economy.service');
 
 const getAbsoluteUrl = (req, relativePath) => {
   if (!relativePath) return '';
@@ -306,6 +307,16 @@ const createCreation = async (req, res, next) => {
       return next(error);
     }
 
+    // Extra post check
+    if (status === 'published') {
+      try {
+        await EconomyService.chargeForExtraPost(userId);
+      } catch (err) {
+        err.statusCode = 400;
+        return next(err);
+      }
+    }
+
     let creation;
 
     if (connectDB.isDbOffline()) {
@@ -351,6 +362,14 @@ const createCreation = async (req, res, next) => {
         { path: 'creator', select: 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage' },
         { path: 'mentions', select: 'fullName username category totalStars avatarUrl profileImage' }
       ]);
+    }
+
+    // Trigger mention notifications
+    if (mentions && mentions.length > 0 && status === 'published') {
+      const NotificationService = require('../services/notification.service');
+      for (const mentionedId of mentions) {
+        await NotificationService.createNotification(userId, mentionedId, 'mention', creation._id || creation.id);
+      }
     }
 
     res.status(201).json({
@@ -752,6 +771,14 @@ const updateCreation = async (req, res, next) => {
       )
         .populate('creator', 'fullName username category totalStars avatarUrl profileImage bannerUrl bannerImage')
         .populate('mentions', 'fullName username category totalStars avatarUrl profileImage');
+    }
+
+    // Trigger mention notifications if status is published and mentions exist
+    if (updateData.mentions && updateData.mentions.length > 0 && updatedCreation.status === 'published') {
+      const NotificationService = require('../services/notification.service');
+      for (const mentionedId of updateData.mentions) {
+        await NotificationService.createNotification(userId, mentionedId, 'mention', updatedCreation._id || updatedCreation.id);
+      }
     }
 
     res.status(200).json({

@@ -70,32 +70,36 @@ const mockUserRepo = {
     return this._wrapUser(deletedUser);
   },
 
-  async create({ fullName, email, password, username, artistName, dateOfBirth }) {
-    // Hash password just like the mongoose schema hook
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+  async create(data) {
+    let hashedPassword = undefined;
+    if (data.password) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(data.password, salt);
+    }
 
     const newUser = {
       _id: `mock-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      fullName,
-      email: email.toLowerCase().trim(),
+      fullName: data.fullName,
+      email: data.email.toLowerCase().trim(),
       password: hashedPassword,
-      username: username ? username.trim().toLowerCase() : undefined,
-      artistName: artistName || '',
-      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-      bio: '',
-      location: '',
-      category: 'Artist',
-      avatarUrl: '',
-      bannerUrl: '',
-      profileImage: '',
-      bannerImage: '',
-      totalStars: 0,
-      walletBalance: 0,
-      emailVerified: false,
-      emailVerifiedAt: null,
+      username: data.username ? data.username.trim().toLowerCase() : undefined,
+      artistName: data.artistName || '',
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
+      bio: data.bio || '',
+      location: data.location || '',
+      category: data.category || 'Artist',
+      avatarUrl: data.avatarUrl || '',
+      bannerUrl: data.bannerUrl || '',
+      profileImage: data.profileImage || '',
+      bannerImage: data.bannerImage || '',
+      totalStars: data.totalStars || 0,
+      walletBalance: data.walletBalance || 0,
+      emailVerified: data.emailVerified || false,
+      emailVerifiedAt: data.emailVerifiedAt || null,
       emailVerificationToken: undefined,
       emailVerificationExpires: undefined,
+      googleId: data.googleId || undefined,
+      authProvider: data.authProvider || 'local',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -130,6 +134,8 @@ const mockUserRepo = {
       emailVerifiedAt: user.emailVerifiedAt,
       emailVerificationToken: user.emailVerificationToken,
       emailVerificationExpires: user.emailVerificationExpires,
+      googleId: user.googleId,
+      authProvider: user.authProvider || 'local',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       // Chainable query helpers
@@ -138,12 +144,13 @@ const mockUserRepo = {
       },
       // Password comparison method
       async comparePassword(candidatePassword) {
+        if (!this.password) return false;
         return await bcrypt.compare(candidatePassword, this.password);
       },
       async save() {
         const rawUser = mockUsers.find(u => u._id === this._id);
         if (rawUser) {
-          if (this.password !== rawUser.password) {
+          if (this.password && this.password !== rawUser.password) {
             const salt = await bcrypt.genSalt(10);
             rawUser.password = await bcrypt.hash(this.password, salt);
           }
@@ -166,6 +173,8 @@ const mockUserRepo = {
           rawUser.emailVerifiedAt = this.emailVerifiedAt;
           rawUser.emailVerificationToken = this.emailVerificationToken;
           rawUser.emailVerificationExpires = this.emailVerificationExpires;
+          rawUser.googleId = this.googleId;
+          rawUser.authProvider = this.authProvider;
           rawUser.updatedAt = new Date();
           
           this.password = rawUser.password;
@@ -1305,6 +1314,207 @@ const mockMessageRepo = {
   }
 };
 
+// ============================================================================
+// ECONOMY SYSTEM MOCK DATABASE & REPOSITORIES
+// ============================================================================
+const mockQuillWallets = [];
+const mockGemWallets = [];
+const mockTransactions = [];
+const mockTaskCompletions = [];
+const mockPremiumPurchases = [];
+
+const mockQuillWalletRepo = {
+  async findOne(query = {}) {
+    let wallet = mockQuillWallets.find(w => w.user === query.user);
+    if (!wallet && query.user) {
+      wallet = {
+        _id: `mock-qw-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        user: query.user,
+        quills: 24,
+        premiumQuills: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        async save() {
+          this.updatedAt = new Date();
+          const idx = mockQuillWallets.findIndex(w => w._id === this._id);
+          if (idx !== -1) mockQuillWallets[idx] = { ...this };
+          return this;
+        }
+      };
+      mockQuillWallets.push(wallet);
+    }
+    return wallet;
+  }
+};
+
+const mockGemWalletRepo = {
+  async findOne(query = {}) {
+    let wallet = mockGemWallets.find(w => w.user === query.user);
+    if (!wallet && query.user) {
+      wallet = {
+        _id: `mock-gw-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        user: query.user,
+        gems: 138,
+        dailyGemsEarned: 0,
+        lastResetDate: null,
+        purchasedBadges: [],
+        purchasedThemes: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        async save() {
+          this.updatedAt = new Date();
+          const idx = mockGemWallets.findIndex(w => w._id === this._id);
+          if (idx !== -1) mockGemWallets[idx] = { ...this };
+          return this;
+        }
+      };
+      mockGemWallets.push(wallet);
+    }
+    return wallet;
+  }
+};
+
+const mockTransactionRepo = {
+  async create(data) {
+    const tx = {
+      _id: `mock-tx-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      user: data.user,
+      amount: data.amount,
+      currency: data.currency,
+      type: data.type,
+      source: data.source,
+      referenceId: data.referenceId || '',
+      description: data.description || '',
+      timestamp: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    mockTransactions.push(tx);
+    return tx;
+  },
+  async find(query = {}) {
+    let list = [...mockTransactions];
+    if (query.user) {
+      list = list.filter(tx => tx.user === query.user);
+    }
+    list.sort((a, b) => b.timestamp - a.timestamp);
+    return list;
+  }
+};
+
+const mockTaskCompletionRepo = {
+  async create(data) {
+    const tc = {
+      _id: `mock-tc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      user: data.user,
+      taskId: data.taskId,
+      completedAt: new Date(),
+      dateString: data.dateString,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    mockTaskCompletions.push(tc);
+    return tc;
+  },
+  async find(query = {}) {
+    let list = [...mockTaskCompletions];
+    if (query.user) {
+      list = list.filter(tc => tc.user === query.user);
+    }
+    if (query.taskId) {
+      list = list.filter(tc => tc.taskId === query.taskId);
+    }
+    if (query.dateString) {
+      list = list.filter(tc => tc.dateString === query.dateString);
+    }
+    return list;
+  },
+  async findOne(query = {}) {
+    const list = await this.find(query);
+    return list.length > 0 ? list[0] : null;
+  }
+};
+
+const mockPremiumPurchaseRepo = {
+  async create(data) {
+    const purchase = {
+      _id: `mock-pp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      user: data.user,
+      packId: data.packId,
+      amount: data.amount,
+      currency: data.currency || 'INR',
+      premiumQuillsAwarded: data.premiumQuillsAwarded,
+      gemsAwarded: data.gemsAwarded || 0,
+      paymentProvider: data.paymentProvider,
+      paymentId: data.paymentId || '',
+      orderId: data.orderId || `mock-order-${Date.now()}`,
+      status: data.status || 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      async save() {
+        this.updatedAt = new Date();
+        const idx = mockPremiumPurchases.findIndex(p => p._id === this._id);
+        if (idx !== -1) mockPremiumPurchases[idx] = { ...this };
+        return this;
+      }
+    };
+    mockPremiumPurchases.push(purchase);
+    return purchase;
+  },
+  async findOne(query = {}) {
+    let list = [...mockPremiumPurchases];
+    if (query.orderId) {
+      list = list.filter(p => p.orderId === query.orderId);
+    }
+    return list.length > 0 ? list[0] : null;
+  }
+};
+
+// ============================================================================
+// ANNOTATION MOCK DATABASE & REPOSITORIES
+// ============================================================================
+const mockAnnotations = [];
+
+const mockAnnotationRepo = {
+  async find(query = {}) {
+    let list = [...mockAnnotations];
+    if (query.creation) {
+      list = list.filter(a => a.creation === query.creation);
+    }
+    if (query.user) {
+      list = list.filter(a => a.user === query.user);
+    }
+    return list;
+  },
+  async findById(id) {
+    const ann = mockAnnotations.find(a => a._id === id);
+    return ann || null;
+  },
+  async create({ user, creation, type, text, startOffset, endOffset, color }) {
+    const newAnn = {
+      _id: `mock-ann-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      user,
+      creation,
+      type,
+      text: text || '',
+      startOffset,
+      endOffset,
+      color: color || '#FFFF00',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    mockAnnotations.push(newAnn);
+    return newAnn;
+  },
+  async findByIdAndDelete(id) {
+    const idx = mockAnnotations.findIndex(a => a._id === id);
+    if (idx === -1) return null;
+    const deleted = mockAnnotations[idx];
+    mockAnnotations.splice(idx, 1);
+    return deleted;
+  }
+};
+
 module.exports = { 
   mockUserRepo, 
   mockUsers, 
@@ -1327,5 +1537,17 @@ module.exports = {
   mockConversations,
   mockMessages,
   mockConversationRepo,
-  mockMessageRepo
+  mockMessageRepo,
+  mockQuillWalletRepo,
+  mockQuillWallets,
+  mockGemWalletRepo,
+  mockGemWallets,
+  mockTransactionRepo,
+  mockTransactions,
+  mockTaskCompletionRepo,
+  mockTaskCompletions,
+  mockPremiumPurchaseRepo,
+  mockPremiumPurchases,
+  mockAnnotations,
+  mockAnnotationRepo
 };

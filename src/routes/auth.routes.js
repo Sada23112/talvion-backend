@@ -2,10 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { 
   signUp, 
+  googleSignIn,
   login, 
   refresh, 
   logout, 
   logoutAll, 
+  revokeSession,
   getActiveSessions,
   forgotPassword,
   resetPassword,
@@ -74,10 +76,12 @@ const recoveryLimiter = rateLimit({
 // Register endpoints
 router.post('/signup', authLimiter, validate(signupSchema), signUp);
 router.post('/login', authLimiter, validate(loginSchema), login);
+router.post('/google', authLimiter, googleSignIn);
 router.post('/refresh', validate(refreshSchema), refresh);
 router.post('/logout', protect, logout);
 router.post('/logout-all', protect, logoutAll);
 router.get('/sessions', protect, getActiveSessions);
+router.delete('/sessions/:sessionId', protect, revokeSession);
 router.post('/forgot-password', recoveryLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password/:token', recoveryLimiter, validate(resetPasswordSchema), resetPassword);
 router.get('/reset-password/:token', getResetPasswordPage);
