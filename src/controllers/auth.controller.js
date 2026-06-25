@@ -243,7 +243,32 @@ const login = async (req, res, next) => {
       return next(error);
     }
 
-    // 4. Create session and generate tokens
+    // 4. Self-heal: Backfill any Phase 1 admin fields missing on legacy documents.
+    //    This handles users who logged in before the migration script was executed.
+    //    Only runs when fields are genuinely absent (undefined), never overwrites set values.
+    if (!connectDB.isDbOffline()) {
+      const legacyDefaults = {};
+      if (user.role === undefined)              legacyDefaults.role = 'user';
+      if (user.status === undefined)            legacyDefaults.status = 'active';
+      if (user.statusReason === undefined)      legacyDefaults.statusReason = '';
+      if (user.statusUntil === undefined)       legacyDefaults.statusUntil = null;
+      if (user.isVerified === undefined)        legacyDefaults.isVerified = false;
+      if (user.moderationNotes === undefined)   legacyDefaults.moderationNotes = '';
+
+      if (Object.keys(legacyDefaults).length > 0) {
+        try {
+          await User.updateOne({ _id: user._id }, { $set: legacyDefaults });
+          // Apply defaults to the in-memory object so the rest of this request is consistent
+          Object.assign(user, legacyDefaults);
+        } catch (healErr) {
+          // Non-fatal — log the issue but do not block the login
+          const logger = require('../config/logger');
+          logger.warn(`Self-heal failed for user ${user.email}: ${healErr.message}`);
+        }
+      }
+    }
+
+    // 5. Create session and generate tokens
     const { accessToken, refreshToken } = await createUserSession(user, req);
 
     // If administrative user, log audit
@@ -260,7 +285,7 @@ const login = async (req, res, next) => {
       });
     }
 
-    // 5. Return success payload
+    // 6. Return success payload
     res.status(200).json({
       status: 'success',
       message: 'Logged in successfully',
