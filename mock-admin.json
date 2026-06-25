@@ -1,0 +1,17 @@
+[
+  {
+    "_id": "mock-user-admin-seed",
+    "fullName": "System Admin",
+    "email": "admin@talvion.com",
+    "password": "$2a$10$WSjwtvy../EBiOnezNMaker6fvieDb.ejcZ4jPB7o0IS8lceX7g4.",
+    "username": "admin",
+    "role": "super_admin",
+    "status": "active",
+    "statusReason": "",
+    "statusUntil": null,
+    "isVerified": true,
+    "moderationNotes": "",
+    "createdAt": "2026-06-25T06:09:21.498Z",
+    "updatedAt": "2026-06-25T06:09:21.499Z"
+  }
+]

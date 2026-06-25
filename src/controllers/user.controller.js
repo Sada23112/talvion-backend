@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const User = require('../models/user.model');
 const Creation = require('../models/creation.model');
-const Upload = require('../models/upload.model');
+
 const Report = require('../models/report.model');
 const { CollabRequest, CollabChat } = require('../models/collab.model');
 const ReadingProgress = require('../models/readingProgress.model');
@@ -252,22 +252,8 @@ const uploadAvatar = async (req, res, next) => {
       return next(error);
     }
 
-    const relativePath = `/uploads/${req.file.filename}`;
+    const relativePath = req.file.path;
     const userId = req.user._id;
-
-    // Save uploaded file to MongoDB if online
-    if (!connectDB.isDbOffline()) {
-      try {
-        const fileData = fs.readFileSync(req.file.path);
-        await Upload.create({
-          filename: req.file.filename,
-          contentType: req.file.mimetype,
-          data: fileData
-        });
-      } catch (dbErr) {
-        logger.error('Failed to save avatar upload to MongoDB:', dbErr);
-      }
-    }
 
     let updatedUser;
     if (connectDB.isDbOffline()) {
@@ -321,22 +307,8 @@ const uploadBanner = async (req, res, next) => {
       return next(error);
     }
 
-    const relativePath = `/uploads/${req.file.filename}`;
+    const relativePath = req.file.path;
     const userId = req.user._id;
-
-    // Save uploaded file to MongoDB if online
-    if (!connectDB.isDbOffline()) {
-      try {
-        const fileData = fs.readFileSync(req.file.path);
-        await Upload.create({
-          filename: req.file.filename,
-          contentType: req.file.mimetype,
-          data: fileData
-        });
-      } catch (dbErr) {
-        logger.error('Failed to save banner upload to MongoDB:', dbErr);
-      }
-    }
 
     let updatedUser;
     if (connectDB.isDbOffline()) {

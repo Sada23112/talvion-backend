@@ -1,7 +1,7 @@
 const Creation = require('../models/creation.model');
 const Notification = require('../models/notification.model');
 const ReadingProgress = require('../models/readingProgress.model');
-const Upload = require('../models/upload.model');
+
 const Report = require('../models/report.model');
 const connectDB = require('../config/db');
 const logger = require('../config/logger');
@@ -273,26 +273,11 @@ const createCreation = async (req, res, next) => {
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         media.push({
-          url: `/uploads/${file.filename}`,
+          url: file.path,
           filename: file.filename,
           mimetype: file.mimetype,
           size: file.size
         });
-
-        // Save to MongoDB if online
-        if (!connectDB.isDbOffline()) {
-          try {
-            const fs = require('fs');
-            const fileData = fs.readFileSync(file.path);
-            await Upload.create({
-              filename: file.filename,
-              contentType: file.mimetype,
-              data: fileData
-            });
-          } catch (dbErr) {
-            logger.error('Failed to save creation media upload to MongoDB:', dbErr);
-          }
-        }
       }
       // If content is empty and it's a media creation, set content to the first file's relative path
       if (!content && (matchedCategory === 'Art' || matchedCategory === 'Photo')) {
@@ -469,6 +454,95 @@ const likeCreation = async (req, res, next) => {
       likesCount: creation.likes.length,
       likes: creation.likes,
       isLiked
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Record a quill tip on a creation and notify both the sender
+ *          and the creator (who actually earns the gems)
+ * @route   POST /api/v1/creations/:id/quill
+ * @access  Private
+ */
+const sendQuillNotification = async (req, res, next) => {
+  try {
+    const creationId = req.params.id;
+    const senderId = req.user._id.toString();
+    const senderName = req.user.fullName || 'Someone';
+    const amount = parseInt(req.body.amount, 10);
+    const isPremium = req.body.isPremium === true || req.body.isPremium === 'true';
+
+    if (!amount || amount < 1 || amount > 3) {
+      const error = new Error('Quill amount must be between 1 and 3');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const artistGems = isPremium ? amount * 4 : amount * 2;
+    const senderGems = isPremium ? Math.round(amount * 2.5) : amount * 1;
+
+    let creatorId;
+    let creatorName;
+
+    if (connectDB.isDbOffline()) {
+      const creation = await mockCreationRepo.findById(creationId);
+      if (!creation) {
+        const error = new Error('Creation not found');
+        error.statusCode = 404;
+        return next(error);
+      }
+      creatorId = creation.creator && creation.creator._id ? creation.creator._id.toString() : creation.creator.toString();
+      creatorName = (creation.creator && creation.creator.fullName) || 'the artist';
+    } else {
+      const creation = await Creation.findById(creationId).populate('creator', 'fullName');
+      if (!creation) {
+        const error = new Error('Creation not found');
+        error.statusCode = 404;
+        return next(error);
+      }
+      creatorId = creation.creator._id.toString();
+      creatorName = creation.creator.fullName || 'the artist';
+    }
+
+    if (creatorId === senderId) {
+      const error = new Error('You cannot send a quill to your own post');
+      error.statusCode = 400;
+      return next(error);
+    }
+
+    const notificationRepo = connectDB.isDbOffline() ? mockNotificationRepo : Notification;
+
+    // The artist actually receives the gems for this quill.
+    await notificationRepo.create({
+      recipient: creatorId,
+      actor: senderId,
+      type: 'quill_received',
+      creation: creationId,
+      message: `You have received ${artistGems} gems from ${senderName}`
+    });
+    // The sender gets a smaller "thank you" gem reward, split into the
+    // two lines the app shows for a quill send.
+    await notificationRepo.create({
+      recipient: senderId,
+      actor: creatorId,
+      type: 'quill_sent',
+      creation: creationId,
+      message: `Quills sent to ${creatorName}`
+    });
+    await notificationRepo.create({
+      recipient: senderId,
+      actor: creatorId,
+      type: 'quill_received',
+      creation: creationId,
+      message: `You have received ${senderGems} gems`
+    });
+
+    res.status(201).json({
+      status: 'success',
+      senderGems,
+      artistGems
     });
   } catch (error) {
     next(error);
@@ -732,25 +806,11 @@ const updateCreation = async (req, res, next) => {
       const media = [];
       for (const file of req.files) {
         media.push({
-          url: `/uploads/${file.filename}`,
+          url: file.path,
           filename: file.filename,
           mimetype: file.mimetype,
           size: file.size
         });
-
-        if (!connectDB.isDbOffline()) {
-          try {
-            const fs = require('fs');
-            const fileData = fs.readFileSync(file.path);
-            await Upload.create({
-              filename: file.filename,
-              contentType: file.mimetype,
-              data: fileData
-            });
-          } catch (dbErr) {
-            logger.error('Failed to save creation media upload to MongoDB in update:', dbErr);
-          }
-        }
       }
       updateData.media = media;
       // If content is empty and it's a media creation, set content to the first file's relative path
@@ -859,6 +919,7 @@ module.exports = {
   getCreationById,
   createCreation,
   likeCreation,
+  sendQuillNotification,
   bookmarkCreation,
   deleteCreation,
   getMyDrafts,

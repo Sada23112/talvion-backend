@@ -16,13 +16,20 @@ const notificationSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Notification must have a type.'],
       enum: {
-        values: ['like', 'comment', 'message', 'collab_request', 'collab_accept', 'follow', 'tip', 'mention'],
-        message: 'Notification type must be one of: like, comment, message, collab_request, collab_accept, follow, tip, mention.'
+        values: ['like', 'comment', 'message', 'collab_request', 'collab_accept', 'quill_sent', 'quill_received', 'follow', 'tip', 'mention'],
+        message: 'Notification type must be one of: like, comment, message, collab_request, collab_accept, quill_sent, quill_received, follow, tip, mention.'
       }
     },
     creation: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Creation'
+    },
+    // Pre-built display text for notifications whose wording doesn't fit
+    // the standard "{actor} did X" template (e.g. quill gem amounts).
+    // When present, the frontend shows this verbatim instead of composing
+    // text from actor + type.
+    message: {
+      type: String
     },
     isRead: {
       type: Boolean,

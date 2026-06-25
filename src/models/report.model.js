@@ -41,7 +41,39 @@ const reportSchema = new mongoose.Schema(
       type: String,
       enum: ['open', 'resolved'],
       default: 'open'
-    }
+    },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    moderatorNotes: {
+      type: String,
+      default: ''
+    },
+    escalated: {
+      type: Boolean,
+      default: false
+    },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    history: [
+      {
+        action: String,
+        performedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        notes: String
+      }
+    ]
   },
   {
     timestamps: true

@@ -1,7 +1,34 @@
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
+const mockAdminPath = path.join(__dirname, '../../mock-admin.json');
 
 // In-memory array storage for mock users
 const mockUsers = [];
+
+// Helper to save admins to disk for offline persistence
+const saveMockAdmins = () => {
+  try {
+    const admins = mockUsers.filter(u => ['super_admin', 'admin', 'moderator', 'support_staff'].includes(u.role));
+    fs.writeFileSync(mockAdminPath, JSON.stringify(admins, null, 2));
+  } catch (e) {
+    // ignore
+  }
+};
+
+// Try loading persisted admins
+try {
+  if (fs.existsSync(mockAdminPath)) {
+    const data = JSON.parse(fs.readFileSync(mockAdminPath, 'utf8'));
+    if (Array.isArray(data)) {
+      mockUsers.push(...data);
+    } else if (data && typeof data === 'object') {
+      mockUsers.push(data);
+    }
+  }
+} catch (e) {
+  // ignore
+}
 
 const mockUserRepo = {
   async findOne(query) {
@@ -100,11 +127,20 @@ const mockUserRepo = {
       emailVerificationExpires: undefined,
       googleId: data.googleId || undefined,
       authProvider: data.authProvider || 'local',
+      role: data.role || 'user',
+      status: data.status || 'active',
+      statusReason: data.statusReason || '',
+      statusUntil: data.statusUntil || null,
+      isVerified: data.isVerified || false,
+      moderationNotes: data.moderationNotes || '',
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
     mockUsers.push(newUser);
+    if (['super_admin', 'admin', 'moderator', 'support_staff'].includes(newUser.role)) {
+      saveMockAdmins();
+    }
 
     return this._wrapUser(newUser);
   },
@@ -136,6 +172,12 @@ const mockUserRepo = {
       emailVerificationExpires: user.emailVerificationExpires,
       googleId: user.googleId,
       authProvider: user.authProvider || 'local',
+      role: user.role || 'user',
+      status: user.status || 'active',
+      statusReason: user.statusReason || '',
+      statusUntil: user.statusUntil || null,
+      isVerified: user.isVerified || false,
+      moderationNotes: user.moderationNotes || '',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       // Chainable query helpers
@@ -175,10 +217,20 @@ const mockUserRepo = {
           rawUser.emailVerificationExpires = this.emailVerificationExpires;
           rawUser.googleId = this.googleId;
           rawUser.authProvider = this.authProvider;
+          rawUser.role = this.role;
+          rawUser.status = this.status;
+          rawUser.statusReason = this.statusReason;
+          rawUser.statusUntil = this.statusUntil;
+          rawUser.isVerified = this.isVerified;
+          rawUser.moderationNotes = this.moderationNotes;
           rawUser.updatedAt = new Date();
           
           this.password = rawUser.password;
           this.updatedAt = rawUser.updatedAt;
+
+          if (['super_admin', 'admin', 'moderator', 'support_staff'].includes(rawUser.role)) {
+            saveMockAdmins();
+          }
         }
         return this;
       }
@@ -188,6 +240,10 @@ const mockUserRepo = {
 
 // In-memory array storage for support reports
 const mockReports = [];
+const mockVerificationRequests = [];
+const mockTransactions = [];
+const mockPremiumPurchases = [];
+const mockAuditLogs = [];
 
 const mockReportRepo = {
   async create({ user, description, targetType, targetId, reason }) {
@@ -199,6 +255,11 @@ const mockReportRepo = {
       targetId: targetId || null,
       reason: reason || null,
       status: 'open',
+      assignedTo: null,
+      moderatorNotes: '',
+      escalated: false,
+      resolvedBy: null,
+      history: [],
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -208,7 +269,101 @@ const mockReportRepo = {
       ? `[${targetType.toUpperCase()}:${targetId}]`
       : '[general]';
     console.log(`[Offline Report] ${label} reason="${reason}" by user ${user}`);
-    return newReport;
+    return this._populateFields(newReport);
+  },
+  async find(query = {}) {
+    let list = [...mockReports];
+    if (query.status) {
+      list = list.filter(r => r.status === query.status);
+    }
+    if (query.escalated !== undefined) {
+      list = list.filter(r => r.escalated === (query.escalated === true || query.escalated === 'true'));
+    }
+    if (query.assignedTo) {
+      list = list.filter(r => r.assignedTo === query.assignedTo);
+    }
+    return list.map(r => this._populateFields(r));
+  },
+  async findById(id) {
+    const report = mockReports.find(r => r._id === id);
+    if (!report) return null;
+    return this._wrapReport(report);
+  },
+  async findByIdAndUpdate(id, updateData) {
+    const idx = mockReports.findIndex(r => r._id === id);
+    if (idx === -1) return null;
+    
+    mockReports[idx] = {
+      ...mockReports[idx],
+      ...updateData,
+      updatedAt: new Date()
+    };
+    return this._populateFields(mockReports[idx]);
+  },
+  _populateFields(report) {
+    const populatedUser = mockUsers.find(u => u._id === report.user) || { _id: report.user, fullName: 'Unknown User' };
+    const populatedAssigned = report.assignedTo ? (mockUsers.find(u => u._id === report.assignedTo) || { _id: report.assignedTo, fullName: 'Unknown Admin' }) : null;
+    const populatedResolved = report.resolvedBy ? (mockUsers.find(u => u._id === report.resolvedBy) || { _id: report.resolvedBy, fullName: 'Unknown Admin' }) : null;
+    
+    // Also populate history performedBy
+    const populatedHistory = (report.history || []).map(h => {
+      const pBy = mockUsers.find(u => u._id === h.performedBy.toString()) || { _id: h.performedBy, fullName: 'System' };
+      return {
+        ...h,
+        performedBy: {
+          _id: pBy._id,
+          fullName: pBy.fullName,
+          username: pBy.username,
+          email: pBy.email
+        }
+      };
+    });
+
+    return {
+      ...report,
+      user: {
+        _id: populatedUser._id,
+        fullName: populatedUser.fullName,
+        username: populatedUser.username,
+        email: populatedUser.email
+      },
+      assignedTo: populatedAssigned ? {
+        _id: populatedAssigned._id,
+        fullName: populatedAssigned.fullName,
+        username: populatedAssigned.username,
+        email: populatedAssigned.email
+      } : null,
+      resolvedBy: populatedResolved ? {
+        _id: populatedResolved._id,
+        fullName: populatedResolved.fullName,
+        username: populatedResolved.username,
+        email: populatedResolved.email
+      } : null,
+      history: populatedHistory
+    };
+  },
+  _wrapReport(report) {
+    const self = this;
+    return {
+      ...report,
+      async save() {
+        const idx = mockReports.findIndex(r => r._id === this._id);
+        if (idx !== -1) {
+          mockReports[idx] = {
+            ...mockReports[idx],
+            status: this.status,
+            assignedTo: this.assignedTo,
+            moderatorNotes: this.moderatorNotes,
+            escalated: this.escalated,
+            resolvedBy: this.resolvedBy,
+            history: this.history,
+            updatedAt: new Date()
+          };
+          return self._populateFields(mockReports[idx]);
+        }
+        return this;
+      }
+    };
   }
 };
 
@@ -421,9 +576,18 @@ const mockCreationRepo = {
       list = list.filter(c => c.isJoint === isJointBool);
     }
 
+    // Filter by isFeatured
+    if (query.isFeatured !== undefined) {
+      const isFeatBool = query.isFeatured === true || query.isFeatured === 'true';
+      list = list.filter(c => (c.isFeatured || false) === isFeatBool);
+    }
+
     // Filter by status
-    const statusFilter = query.status || 'published';
-    list = list.filter(c => (c.status || 'published') === statusFilter);
+    if (query.status && query.status !== 'all') {
+      list = list.filter(c => (c.status || 'published') === query.status);
+    } else if (!query.status) {
+      list = list.filter(c => (c.status || 'published') === 'published');
+    }
 
     // Sort by createdAt desc
     list.sort((a, b) => b.createdAt - a.createdAt);
@@ -536,7 +700,7 @@ const mockConversations = [];
 const mockMessages = [];
 
 // Seed some active mock users into mockUsers array to make Discover tab functional
-if (mockUsers.length === 0) {
+if (!mockUsers.some(u => u._id === 'mock-user-1')) {
   mockUsers.push(
     {
       _id: 'mock-user-1',
@@ -657,6 +821,198 @@ if (mockUsers.length === 0) {
       ],
       createdAt: new Date(),
       updatedAt: new Date()
+    }
+  );
+
+  // Seed some support reports
+  mockReports.push(
+    {
+      _id: 'mock-report-1',
+      user: 'mock-user-1', // Reporter: Riya Sen
+      targetType: 'creation',
+      targetId: 'mock-creation-7', // When Stars Forget
+      reason: 'Spam or misleading',
+      description: 'This appears to be copy-pasted spam from another website.',
+      status: 'open',
+      assignedTo: null,
+      moderatorNotes: '',
+      escalated: false,
+      resolvedBy: null,
+      history: [],
+      createdAt: new Date(Date.now() - 3600000 * 2), // 2 hours ago
+      updatedAt: new Date(Date.now() - 3600000 * 2)
+    },
+    {
+      _id: 'mock-report-2',
+      user: 'mock-user-2', // Reporter: Arjun Khanna
+      targetType: 'user',
+      targetId: 'mock-user-3', // Reported: Dev Malhotra
+      reason: 'Harassment or bullying',
+      description: 'Sending offensive and spammy collaboration requests repeatedly.',
+      status: 'open',
+      assignedTo: null,
+      moderatorNotes: '',
+      escalated: false,
+      resolvedBy: null,
+      history: [],
+      createdAt: new Date(Date.now() - 3600000 * 4), // 4 hours ago
+      updatedAt: new Date(Date.now() - 3600000 * 4)
+    }
+  );
+
+  // Seed some creator verification requests
+  mockVerificationRequests.push(
+    {
+      _id: 'mock-vr-1',
+      user: 'mock-user-1', // Riya Sen
+      portfolioLinks: ['https://riyasen.medium.com', 'https://riyasen.portfolio.com'],
+      bio: 'Poet and short story writer since 2018. Published in two anthologies.',
+      status: 'pending',
+      feedback: '',
+      reviewedBy: null,
+      reviewedAt: null,
+      createdAt: new Date(Date.now() - 3600000 * 24), // 1 day ago
+      updatedAt: new Date(Date.now() - 3600000 * 24)
+    },
+    {
+      _id: 'mock-vr-2',
+      user: 'mock-user-2', // Arjun Khanna
+      portfolioLinks: ['https://artstation.com/arjun_k', 'https://behance.net/arjun_k'],
+      bio: 'Digital illustrator specializing in fantasy art and warm color palettes.',
+      status: 'pending',
+      feedback: '',
+      reviewedBy: null,
+      reviewedAt: null,
+      createdAt: new Date(Date.now() - 3600000 * 12), // 12 hours ago
+      updatedAt: new Date(Date.now() - 3600000 * 12)
+    }
+  );
+
+  // Seed some mock transactions
+  mockTransactions.push(
+    {
+      _id: 'mock-tx-1',
+      user: 'mock-user-1', // Riya Sen
+      amount: -2,
+      currency: 'quill',
+      type: 'quill_sent',
+      source: 'tip',
+      referenceId: 'mock-creation-7', // When Stars Forget
+      description: 'Sent 2 quills to support post',
+      timestamp: new Date(Date.now() - 3600000 * 5),
+      createdAt: new Date(Date.now() - 3600000 * 5),
+      updatedAt: new Date(Date.now() - 3600000 * 5)
+    },
+    {
+      _id: 'mock-tx-2',
+      user: 'mock-user-2', // Arjun Khanna
+      amount: 4,
+      currency: 'gem',
+      type: 'gems_earned',
+      source: 'quill_tip_recipient_solo',
+      referenceId: 'mock-creation-7',
+      description: 'Gems earned from quill_tip_recipient_solo',
+      timestamp: new Date(Date.now() - 3600000 * 5),
+      createdAt: new Date(Date.now() - 3600000 * 5),
+      updatedAt: new Date(Date.now() - 3600000 * 5)
+    },
+    {
+      _id: 'mock-tx-3',
+      user: 'mock-user-3', // Dev Malhotra
+      amount: 50,
+      currency: 'premium_quill',
+      type: 'purchase_completed',
+      source: 'shop_pack',
+      referenceId: 'mock-order-pp-1',
+      description: 'Bought 50 Premium Quills',
+      timestamp: new Date(Date.now() - 3600000 * 12),
+      createdAt: new Date(Date.now() - 3600000 * 12),
+      updatedAt: new Date(Date.now() - 3600000 * 12)
+    },
+    {
+      _id: 'mock-tx-4',
+      user: 'mock-user-1', // Riya Sen
+      amount: -1,
+      currency: 'premium_quill',
+      type: 'premium_quill_sent',
+      source: 'tip',
+      referenceId: 'mock-creation-7',
+      description: 'Sent 1 premium quill to support post',
+      timestamp: new Date(Date.now() - 3600000 * 1),
+      createdAt: new Date(Date.now() - 3600000 * 1),
+      updatedAt: new Date(Date.now() - 3600000 * 1)
+    },
+    {
+      _id: 'mock-tx-5',
+      user: 'mock-user-2', // Arjun Khanna
+      amount: 4,
+      currency: 'gem',
+      type: 'gems_earned',
+      source: 'quill_tip_recipient_solo',
+      referenceId: 'mock-creation-7',
+      description: 'Gems earned from quill_tip_recipient_solo',
+      timestamp: new Date(Date.now() - 3600000 * 1),
+      createdAt: new Date(Date.now() - 3600000 * 1),
+      updatedAt: new Date(Date.now() - 3600000 * 1)
+    }
+  );
+
+  // Seed mock premium purchases
+  mockPremiumPurchases.push(
+    {
+      _id: 'mock-pp-1',
+      user: 'mock-user-3', // Dev Malhotra
+      packId: 'popular',
+      amount: 299,
+      currency: 'INR',
+      premiumQuillsAwarded: 50,
+      gemsAwarded: 10,
+      paymentProvider: 'razorpay',
+      paymentId: 'pay_rzp_mock123',
+      orderId: 'mock-order-pp-1',
+      status: 'completed',
+      createdAt: new Date(Date.now() - 3600000 * 12),
+      updatedAt: new Date(Date.now() - 3600000 * 12)
+    }
+  );
+
+  // Seed some mock audit logs
+  mockAuditLogs.push(
+    {
+      _id: 'mock-audit-1',
+      admin: 'mock-user-admin-seed', // System Admin
+      actionType: 'suspend_user',
+      targetModel: 'User',
+      targetId: 'mock-user-3',
+      description: 'Suspended user account Dev Malhotra for 7 days. Reason: sending spam requests.',
+      previousState: { status: 'active', statusUntil: null },
+      newState: { status: 'suspended', statusUntil: new Date(Date.now() + 3600000 * 24 * 7).toISOString() },
+      ipAddress: '192.168.1.50',
+      createdAt: new Date(Date.now() - 3600000 * 48)
+    },
+    {
+      _id: 'mock-audit-2',
+      admin: 'mock-user-admin-seed',
+      actionType: 'hide_content',
+      targetModel: 'Creation',
+      targetId: 'mock-creation-7',
+      description: 'Hid creation (marked as draft) following copyright complaint.',
+      previousState: { status: 'published' },
+      newState: { status: 'draft' },
+      ipAddress: '192.168.1.50',
+      createdAt: new Date(Date.now() - 3600000 * 2)
+    },
+    {
+      _id: 'mock-audit-3',
+      admin: 'mock-user-admin-seed',
+      actionType: 'resolve_verification_approved',
+      targetModel: 'VerificationRequest',
+      targetId: 'mock-vr-1',
+      description: 'Creator verification request was approved. Creator badge activated.',
+      previousState: { status: 'pending' },
+      newState: { status: 'approved' },
+      ipAddress: '192.168.1.50',
+      createdAt: new Date(Date.now() - 3600000 * 1)
     }
   );
 }
@@ -1063,13 +1419,14 @@ const mockNotificationRepo = {
     return { modifiedCount: count };
   },
 
-  async create({ recipient, actor, type, creation }) {
+  async create({ recipient, actor, type, creation, message }) {
     const newNotification = {
       _id: `mock-notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       recipient: recipient.toString(),
       actor: actor.toString(),
       type,
       creation: creation ? creation.toString() : undefined,
+      message: message || undefined,
       isRead: false,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -1319,9 +1676,7 @@ const mockMessageRepo = {
 // ============================================================================
 const mockQuillWallets = [];
 const mockGemWallets = [];
-const mockTransactions = [];
 const mockTaskCompletions = [];
-const mockPremiumPurchases = [];
 
 const mockQuillWalletRepo = {
   async findOne(query = {}) {
@@ -1399,6 +1754,18 @@ const mockTransactionRepo = {
     }
     list.sort((a, b) => b.timestamp - a.timestamp);
     return list;
+  },
+  async findById(id) {
+    return mockTransactions.find(tx => tx._id === id) || null;
+  },
+  async findOne(query = {}) {
+    if (query.referenceId) {
+      return mockTransactions.find(tx => tx.referenceId === query.referenceId) || null;
+    }
+    if (query._id) {
+      return mockTransactions.find(tx => tx._id === query._id) || null;
+    }
+    return null;
   }
 };
 
@@ -1515,6 +1882,147 @@ const mockAnnotationRepo = {
   }
 };
 
+// ============================================================================
+// VERIFICATION REQUEST MOCK DATABASE & REPOSITORIES
+// ============================================================================
+
+const mockVerificationRequestRepo = {
+  async find(query = {}) {
+    let list = [...mockVerificationRequests];
+    if (query.status) {
+      list = list.filter(v => v.status === query.status);
+    }
+    if (query.user) {
+      list = list.filter(v => v.user === query.user);
+    }
+    return list.map(v => this._populateFields(v));
+  },
+  async findById(id) {
+    const request = mockVerificationRequests.find(v => v._id === id);
+    if (!request) return null;
+    return this._wrapRequest(request);
+  },
+  async create(data) {
+    const request = {
+      _id: `mock-vr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      user: data.user,
+      portfolioLinks: data.portfolioLinks || [],
+      bio: data.bio || '',
+      status: data.status || 'pending',
+      feedback: data.feedback || '',
+      reviewedBy: data.reviewedBy || null,
+      reviewedAt: data.reviewedAt || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    mockVerificationRequests.push(request);
+    return this._populateFields(request);
+  },
+  async findByIdAndUpdate(id, updateData) {
+    const idx = mockVerificationRequests.findIndex(v => v._id === id);
+    if (idx === -1) return null;
+    mockVerificationRequests[idx] = {
+      ...mockVerificationRequests[idx],
+      ...updateData,
+      updatedAt: new Date()
+    };
+    return this._populateFields(mockVerificationRequests[idx]);
+  },
+  _populateFields(vr) {
+    const populatedUser = mockUsers.find(u => u._id === vr.user.toString()) || { _id: vr.user, fullName: 'Unknown User' };
+    const populatedReviewer = vr.reviewedBy ? (mockUsers.find(u => u._id === vr.reviewedBy.toString()) || { _id: vr.reviewedBy, fullName: 'Unknown Admin' }) : null;
+    return {
+      ...vr,
+      user: {
+        _id: populatedUser._id,
+        fullName: populatedUser.fullName,
+        username: populatedUser.username,
+        email: populatedUser.email
+      },
+      reviewedBy: populatedReviewer ? {
+        _id: populatedReviewer._id,
+        fullName: populatedReviewer.fullName,
+        username: populatedReviewer.username,
+        email: populatedReviewer.email
+      } : null
+    };
+  },
+  _wrapRequest(vr) {
+    const self = this;
+    return {
+      ...vr,
+      async save() {
+        const idx = mockVerificationRequests.findIndex(v => v._id === this._id);
+        if (idx !== -1) {
+          mockVerificationRequests[idx] = {
+            ...mockVerificationRequests[idx],
+            status: this.status,
+            feedback: this.feedback,
+            reviewedBy: this.reviewedBy,
+            reviewedAt: this.reviewedAt,
+            updatedAt: new Date()
+          };
+          return self._populateFields(mockVerificationRequests[idx]);
+        }
+        return this;
+      }
+    };
+  }
+};
+
+// ============================================================================
+// AUDIT LOG MOCK DATABASE & REPOSITORIES
+// ============================================================================
+
+const mockAuditLogRepo = {
+  async find(query = {}) {
+    let list = [...mockAuditLogs];
+    if (query.admin) {
+      list = list.filter(l => l.admin === query.admin);
+    }
+    if (query.actionType) {
+      list = list.filter(l => l.actionType === query.actionType);
+    }
+    if (query.targetModel) {
+      list = list.filter(l => l.targetModel === query.targetModel);
+    }
+    if (query.targetId) {
+      list = list.filter(l => l.targetId === query.targetId);
+    }
+    // Sort in reverse chronological order
+    list.sort((a, b) => b.createdAt - a.createdAt);
+    return list.map(l => this._populateFields(l));
+  },
+  async create(data) {
+    const log = {
+      _id: `mock-audit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      admin: data.admin,
+      actionType: data.actionType,
+      targetModel: data.targetModel,
+      targetId: data.targetId,
+      description: data.description || '',
+      previousState: data.previousState || null,
+      newState: data.newState || null,
+      ipAddress: data.ipAddress || '',
+      createdAt: new Date()
+    };
+    mockAuditLogs.push(log);
+    return this._populateFields(log);
+  },
+  _populateFields(log) {
+    const populatedAdmin = mockUsers.find(u => u._id === log.admin.toString()) || { _id: log.admin, fullName: 'Unknown Admin' };
+    return {
+      ...log,
+      admin: {
+        _id: populatedAdmin._id,
+        fullName: populatedAdmin.fullName,
+        username: populatedAdmin.username,
+        email: populatedAdmin.email
+      }
+    };
+  }
+};
+
 module.exports = { 
   mockUserRepo, 
   mockUsers, 
@@ -1549,5 +2057,9 @@ module.exports = {
   mockPremiumPurchaseRepo,
   mockPremiumPurchases,
   mockAnnotations,
-  mockAnnotationRepo
+  mockAnnotationRepo,
+  mockVerificationRequests,
+  mockVerificationRequestRepo,
+  mockAuditLogs,
+  mockAuditLogRepo
 };

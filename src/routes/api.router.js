@@ -11,9 +11,13 @@ const annotationRoutes = require('./annotation.routes');
 const notificationRoutes = require('./notification.routes');
 const conversationRoutes = require('./conversation.routes');
 const economyRoutes = require('./economy.routes');
+const adminRoutes = require('./admin.routes');
 
 // 1. Mount Functional Authentication Routes
 router.use('/auth', authRoutes);
+
+// Mount Admin Routes
+router.use('/admin', adminRoutes);
 
 // Mount Economy Routes
 router.use('/economy', economyRoutes);

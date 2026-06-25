@@ -5,6 +5,7 @@ const {
   getCreationById,
   createCreation,
   likeCreation,
+  sendQuillNotification,
   bookmarkCreation,
   deleteCreation,
   getMyDrafts,
@@ -24,6 +25,7 @@ router.get('/:id', getCreationById);
 router.post('/', protect, verified, uploadCreationMedia, createCreation);
 router.patch('/:id', protect, verified, uploadCreationMedia, updateCreation);
 router.post('/:id/like', protect, verified, likeCreation);
+router.post('/:id/quill', protect, verified, sendQuillNotification);
 router.post('/:id/bookmark', protect, verified, bookmarkCreation);
 router.post('/:id/report', protect, reportCreation);
 router.delete('/:id', protect, verified, deleteCreation);

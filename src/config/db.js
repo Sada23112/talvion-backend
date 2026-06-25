@@ -2,6 +2,10 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 
 const connectDB = async () => {
+  if (connectDB.isDbOffline()) {
+    console.log('Talvion running in OFFLINE mock database mode.');
+    return;
+  }
   try {
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/talvion';
     

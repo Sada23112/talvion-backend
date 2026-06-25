@@ -11,7 +11,8 @@ class NotificationService {
    * @param {string} type - One of: like, comment, message, collab_request, collab_accept, follow, tip, mention
    * @param {string} [creationId] - ID of the associated creation (optional)
    */
-  static async createNotification(actor, recipient, type, creationId = null) {
+  static async createNotification(actor, recipient, type, creationId = null, message = null, options = {}) {
+    const { session, throwOnError = false } = options;
     try {
       if (actor.toString() === recipient.toString()) {
         return null; // Do not notify oneself
@@ -27,16 +28,28 @@ class NotificationService {
         notifData.creation = creationId;
       }
 
+      if (message) {
+        notifData.message = message;
+      }
+
       let notification;
       if (connectDB.isDbOffline()) {
         notification = await mockNotificationRepo.create(notifData);
       } else {
-        notification = await Notification.create(notifData);
+        if (session) {
+          const results = await Notification.create([notifData], { session });
+          notification = results[0];
+        } else {
+          notification = await Notification.create(notifData);
+        }
       }
 
       return notification;
     } catch (error) {
       logger.error(`Error creating ${type} notification`, error);
+      if (throwOnError) {
+        throw error;
+      }
       return null;
     }
   }

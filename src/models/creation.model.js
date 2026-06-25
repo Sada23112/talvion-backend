@@ -96,6 +96,11 @@ const creationSchema = new mongoose.Schema(
       type: String,
       enum: ['public', 'private'],
       default: 'public'
+    },
+    isFeatured: {
+      type: Boolean,
+      default: false,
+      index: true
     }
   },
   {

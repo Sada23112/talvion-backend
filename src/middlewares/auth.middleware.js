@@ -127,6 +127,13 @@ const protect = async (req, res, next) => {
       return next(error);
     }
 
+    // Check if user is suspended or banned
+    if (currentUser.status === 'suspended' || currentUser.status === 'banned') {
+      const error = new Error('Your account has been suspended or banned.');
+      error.statusCode = 403;
+      return next(error);
+    }
+
     // Update lastActive timestamp on session
     session.lastActive = new Date();
     await session.save();
@@ -140,4 +147,25 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+/**
+ * Restrict routes to specific administrative roles
+ */
+const restrictTo = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      const error = new Error('Authentication required.');
+      error.statusCode = 401;
+      return next(error);
+    }
+
+    if (!roles.includes(req.user.role)) {
+      const error = new Error('You do not have permission to perform this action.');
+      error.statusCode = 403;
+      return next(error);
+    }
+
+    next();
+  };
+};
+
+module.exports = { protect, restrictTo };

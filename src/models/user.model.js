@@ -112,6 +112,32 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['local', 'google'],
       default: 'local'
+    },
+    role: {
+      type: String,
+      enum: ['user', 'support_staff', 'moderator', 'admin', 'super_admin'],
+      default: 'user'
+    },
+    status: {
+      type: String,
+      enum: ['active', 'suspended', 'banned'],
+      default: 'active'
+    },
+    statusReason: {
+      type: String,
+      default: ''
+    },
+    statusUntil: {
+      type: Date,
+      default: null
+    },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    moderationNotes: {
+      type: String,
+      default: ''
     }
   },
   {

@@ -1,41 +1,33 @@
 const multer = require('multer');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('../config/cloudinary');
 const path = require('path');
-const fs = require('fs');
 
-// Storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../../uploads');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const userId = req.user ? req.user._id : 'anonymous';
-    let prefix = 'creation';
+// Storage configuration for Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
+    let folder = 'talvion/creations';
     if (file.fieldname === 'avatar') {
-      prefix = 'avatar';
+      folder = 'talvion/avatars';
     } else if (file.fieldname === 'banner') {
-      prefix = 'banner';
+      folder = 'talvion/banners';
     }
-    cb(null, `${prefix}-${userId}-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-  }
+    
+    // Cloudinary automatically handles formats but we can enforce some if we want
+    // Here we let Cloudinary use auto format, but we can set allowed formats:
+    return {
+      folder: folder,
+      allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'mp4', 'mov', 'webm'],
+      resource_type: 'auto', // Important for video support
+    };
+  },
 });
 
 // File validation filter
 const fileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
   let mimetype = file.mimetype;
-
-  // Temporary diagnostic logging
-  console.log(`\n[Multer Upload Diagnostic]`);
-  console.log(`  - Incoming Filename: ${file.originalname}`);
-  console.log(`  - Incoming Extension: ${ext}`);
-  console.log(`  - Incoming Mimetype: ${mimetype}`);
-  console.log(`  - Fieldname: ${file.fieldname}`);
-  console.log(`  - Multer File Object:`, file);
 
   // Fallback resolving if the client sent generic binary mimetype
   if (mimetype === 'application/octet-stream') {
@@ -52,7 +44,6 @@ const fileFilter = (req, file, cb) => {
     } else if (ext === '.webm') {
       mimetype = 'video/webm';
     }
-    console.log(`  - Resolved Mimetype Fallback: ${mimetype}`);
   }
 
   const allowedMimeTypes = [
@@ -62,8 +53,6 @@ const fileFilter = (req, file, cb) => {
   if (allowedMimeTypes.includes(mimetype)) {
     cb(null, true);
   } else {
-    const reason = `Mimetype "${mimetype}" with extension "${ext}" is not supported. Only images (JPG, JPEG, PNG, WEBP) and videos (MP4, MPEG, MOV, WEBM) are allowed.`;
-    console.log(`  - ❌ Rejection Reason: ${reason}\n`);
     const error = new Error('Invalid file type. Only images and videos are allowed.');
     error.statusCode = 400;
     cb(error, false);

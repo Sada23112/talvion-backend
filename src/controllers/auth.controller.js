@@ -246,6 +246,20 @@ const login = async (req, res, next) => {
     // 4. Create session and generate tokens
     const { accessToken, refreshToken } = await createUserSession(user, req);
 
+    // If administrative user, log audit
+    if (['support_staff', 'moderator', 'admin', 'super_admin'].includes(user.role)) {
+      const { logAdminAction } = require('../services/admin.service');
+      const ipAddress = req.ip || req.headers['x-forwarded-for'] || '';
+      await logAdminAction({
+        adminId: user._id || user.id,
+        actionType: 'login',
+        targetModel: 'User',
+        targetId: user._id || user.id,
+        description: `Administrator @${user.username} logged in successfully.`,
+        ipAddress
+      });
+    }
+
     // 5. Return success payload
     res.status(200).json({
       status: 'success',
@@ -374,6 +388,20 @@ const logout = async (req, res, next) => {
     if (session) {
       session.isRevoked = true;
       await session.save();
+    }
+
+    // If administrative user, log audit
+    if (req.user && ['support_staff', 'moderator', 'admin', 'super_admin'].includes(req.user.role)) {
+      const { logAdminAction } = require('../services/admin.service');
+      const ipAddress = req.ip || req.headers['x-forwarded-for'] || '';
+      await logAdminAction({
+        adminId: req.user._id || req.user.id,
+        actionType: 'logout',
+        targetModel: 'User',
+        targetId: req.user._id || req.user.id,
+        description: `Administrator @${req.user.username} logged out successfully.`,
+        ipAddress
+      });
     }
 
     res.status(200).json({
