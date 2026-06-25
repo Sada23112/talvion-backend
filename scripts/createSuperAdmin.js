@@ -1,8 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const readline = require('readline');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
-const path = require('path');
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -90,14 +90,11 @@ async function run() {
   } else {
     // MongoDB Live mode
     const mongoose = require('mongoose');
+    const connectDB = require('../src/config/db');
     const User = require('../src/models/user.model');
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/talvion';
 
     try {
-      console.log('Connecting to MongoDB...');
-      await mongoose.connect(mongoURI);
-      console.log('Connected.');
-
+      await connectDB();
       // Check if super_admin exists
       const existingAdmin = await User.findOne({ role: 'super_admin' });
       if (existingAdmin) {
