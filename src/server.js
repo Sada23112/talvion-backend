@@ -32,49 +32,78 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-// Boot Database
-connectDB();
+let server;
 
-// Determine port
-const PORT = process.env.PORT || 5000;
+// Boot Database & Start Server
+async function bootstrap() {
+  try {
+    // 1. Connect to Database
+    await connectDB();
 
-// Listen on designated port
-const server = app.listen(PORT, () => {
-  logger.info('TALVION BACKEND SERVER STARTED', {
-    mode: process.env.NODE_ENV || 'development',
-    port: PORT,
-    endpoint: `http://localhost:${PORT}/api/v1`,
-    health: `http://localhost:${PORT}/health`
-  });
-});
+    // 2. Automatically Run Legacy User Migration (Idempotent)
+    try {
+      const { migrateLegacyUsers } = require('../scripts/migrateLegacyUsers');
+      await migrateLegacyUsers({ dryRun: false, closeConnection: false });
+    } catch (migrationErr) {
+      logger.error('Failed to run automatic user migration on startup:', migrationErr);
+    }
 
-// Initialize Socket.IO server
-const { initSocket } = require('./config/socket');
-initSocket(server);
+    // 3. Determine port
+    const PORT = process.env.PORT || 5000;
 
-// Handle unhandled promise rejections globally
-process.on('unhandledRejection', (err) => {
-  logger.error('UNHANDLED REJECTION! Shutting down gracefully...', err);
-  server.close(() => {
+    // 4. Listen on designated port
+    server = app.listen(PORT, () => {
+      logger.info('TALVION BACKEND SERVER STARTED', {
+        mode: process.env.NODE_ENV || 'development',
+        port: PORT,
+        endpoint: `http://localhost:${PORT}/api/v1`,
+        health: `http://localhost:${PORT}/health`
+      });
+    });
+
+    // 5. Initialize Socket.IO server
+    const { initSocket } = require('./config/socket');
+    initSocket(server);
+
+    // Handle unhandled promise rejections globally
+    process.on('unhandledRejection', (err) => {
+      logger.error('UNHANDLED REJECTION! Shutting down gracefully...', err);
+      if (server) {
+        server.close(() => {
+          process.exit(1);
+        });
+      } else {
+        process.exit(1);
+      }
+    });
+
+  } catch (bootErr) {
+    logger.error('CRITICAL BOOT ERROR: Server failed to start', bootErr);
     process.exit(1);
-  });
-});
+  }
+}
+
+bootstrap();
 
 // Graceful shutdown listeners
 const gracefulShutdown = (signal) => {
   logger.info(`Received ${signal}. Starting graceful shutdown...`);
   
-  server.close(async () => {
-    logger.info('HTTP server closed.');
-    try {
-      await mongoose.connection.close(false);
-      logger.info('MongoDB connection closed successfully.');
-      process.exit(0);
-    } catch (err) {
-      logger.error('Error during MongoDB connection close', err);
-      process.exit(1);
-    }
-  });
+  if (server) {
+    server.close(async () => {
+      logger.info('HTTP server closed.');
+      try {
+        await mongoose.connection.close(false);
+        logger.info('MongoDB connection closed successfully.');
+        process.exit(0);
+      } catch (err) {
+        logger.error('Error during MongoDB connection close', err);
+        process.exit(1);
+      }
+    });
+  } else {
+    process.exit(0);
+  }
 
   // Force close after 10 seconds if connections hang
   setTimeout(() => {
